@@ -57,6 +57,7 @@ class WorkflowRegistry:
         full_name = f"{group_id}:{workflow_id}"
         if full_name in self._workflows:
             self.logger.warning(f"Workflow {full_name} already registered, overwriting")
+        workflow_builder.id = full_name
         self._workflows[full_name] = workflow_builder
         self.logger.info(f"Registered workflow: {full_name}")
 

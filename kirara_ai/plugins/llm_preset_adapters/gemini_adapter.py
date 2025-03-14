@@ -1,13 +1,35 @@
+import asyncio
+
 import aiohttp
 import requests
 from pydantic import BaseModel, ConfigDict
 
 from kirara_ai.llm.adapter import AutoDetectModelsProtocol, LLMBackendAdapter
-from kirara_ai.llm.format.message import LLMChatMessage
+from kirara_ai.llm.format.message import LLMChatImageContent, LLMChatMessage, LLMChatTextContent
 from kirara_ai.llm.format.request import LLMChatRequest
 from kirara_ai.llm.format.response import LLMChatResponse
 from kirara_ai.logger import get_logger
+from kirara_ai.media import MediaManager
 
+SAFETY_SETTINGS = [{
+    "category": "HARM_CATEGORY_HARASSMENT",
+    "threshold": "BLOCK_NONE"
+},{
+    "category": "HARM_CATEGORY_HATE_SPEECH",
+    "threshold": "BLOCK_NONE"
+},{
+    "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+    "threshold": "BLOCK_NONE"
+},{
+    "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+    "threshold": "BLOCK_NONE"
+},{
+    "category": "HARM_CATEGORY_CIVIC_INTEGRITY",
+    "threshold": "BLOCK_NONE"
+}]
+
+# POST 模式支持最大 20 MB 的 inline data
+INLINE_LIMIT_SIZE = 1024 * 1024 * 20
 
 class GeminiConfig(BaseModel):
     api_key: str
@@ -15,14 +37,30 @@ class GeminiConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
 
-def convert_llm_chat_message_to_gemini_message(msg: LLMChatMessage) -> dict:
+async def convert_llm_chat_message_to_gemini_message(msg: LLMChatMessage, media_manager: MediaManager) -> dict:
+    parts = []
+    for element in msg.content:
+        if isinstance(element, LLMChatTextContent):
+            parts.append({"text": element.text})
+        elif isinstance(element, LLMChatImageContent):
+            media = media_manager.get_media(element.media_id)
+            parts.append({
+                "inline_data": {
+                    "mime_type": media.mime_type,
+                    "data": await media.get_base64()
+                }
+            })
+
     return {
         "role": "model" if msg.role == "assistant" else "user",
-        "parts": [{"text": msg.content}],
+        "parts": parts
     }
 
 
 class GeminiAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
+    
+    media_manager: MediaManager
+    
     def __init__(self, config: GeminiConfig):
         self.config = config
         self.logger = get_logger("GeminiAdapter")
@@ -33,11 +71,19 @@ class GeminiAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
             "x-goog-api-key": self.config.api_key,
             "Content-Type": "application/json",
         }
+        
+        # create a new asyncio loop to run the convert_llm_chat_message_to_gemini_message function
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        # use asyncio gather to run the convert_llm_chat_message_to_gemini_message function
+        contents = loop.run_until_complete(
+            asyncio.gather(
+                *[convert_llm_chat_message_to_gemini_message(msg, self.media_manager) for msg in req.messages]
+            )
+        )
 
         data = {
-            "contents": [
-                convert_llm_chat_message_to_gemini_message(msg) for msg in req.messages
-            ],
+            "contents": contents ,
             "generationConfig": {
                 "temperature": req.temperature,
                 "topP": req.top_p,
@@ -45,13 +91,12 @@ class GeminiAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
                 "maxOutputTokens": req.max_tokens,
                 "stopSequences": req.stop,
             },
-            "safetySettings": [],
+            "safetySettings": SAFETY_SETTINGS,
         }
 
         self.logger.debug(f"Contents: {data['contents']}")
         # Remove None fields
         data = {k: v for k, v in data.items() if v is not None}
-
         response = requests.post(api_url, json=data, headers=headers)
         try:
             response.raise_for_status()
@@ -95,7 +140,7 @@ class GeminiAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
                 api_url, headers={"x-goog-api-key": self.config.api_key}
             ) as response:
                 if response.status != 200:
-                    self.logger.error(f"获取模型列表失败: {await response.text()}")                    
+                    self.logger.error(f"获取模型列表失败: {await response.text()}")
                     response.raise_for_status()
                 response_data = await response.json()
                 return [

@@ -1,11 +1,32 @@
+import asyncio
+
 import aiohttp
 import requests
 from pydantic import BaseModel, ConfigDict
 
 from kirara_ai.llm.adapter import AutoDetectModelsProtocol, LLMBackendAdapter
+from kirara_ai.llm.format.message import LLMChatImageContent, LLMChatMessage, LLMChatTextContent
 from kirara_ai.llm.format.request import LLMChatRequest
 from kirara_ai.llm.format.response import LLMChatResponse
+from kirara_ai.media import MediaManager
 
+
+async def convert_llm_chat_message_to_openai_message(msg: LLMChatMessage, media_manager: MediaManager) -> dict:
+    parts = []
+    for element in msg.content:
+        if isinstance(element, LLMChatTextContent):
+            parts.append(element.model_dump(mode="json"))
+        elif isinstance(element, LLMChatImageContent):
+            media = media_manager.get_media(element.media_id)
+            parts.append(
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": await media.get_url()
+                    }
+                }
+            )
+    return parts
 
 class OpenAIConfig(BaseModel):
     api_key: str
@@ -14,6 +35,8 @@ class OpenAIConfig(BaseModel):
 
 
 class OpenAIAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
+    media_manager: MediaManager
+    
     def __init__(self, config: OpenAIConfig):
         self.config = config
 
@@ -23,9 +46,17 @@ class OpenAIAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
             "Authorization": f"Bearer {self.config.api_key}",
             "Content-Type": "application/json",
         }
+        
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        contents = loop.run_until_complete(
+            asyncio.gather(
+                *[convert_llm_chat_message_to_openai_message(msg, self.media_manager) for msg in req.messages]
+            )
+        )
 
         data = {
-            "messages": [msg.model_dump(mode="json") for msg in req.messages],
+            "messages": contents,
             "model": req.model,
             "frequency_penalty": req.frequency_penalty,
             "max_tokens": req.max_tokens,

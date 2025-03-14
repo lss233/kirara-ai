@@ -16,6 +16,7 @@ from kirara_ai.ioc.container import DependencyContainer
 from kirara_ai.llm.llm_manager import LLMManager
 from kirara_ai.llm.llm_registry import LLMBackendRegistry
 from kirara_ai.logger import get_logger
+from kirara_ai.media import MediaManager
 from kirara_ai.memory.composes import DefaultMemoryComposer, DefaultMemoryDecomposer
 from kirara_ai.memory.memory_manager import MemoryManager
 from kirara_ai.memory.scopes import GlobalScope, GroupScope, MemberScope
@@ -114,6 +115,7 @@ def init_application() -> DependencyContainer:
     container = init_container()
     container.register(asyncio.AbstractEventLoop, asyncio.new_event_loop())
     container.register(EventBus, EventBus())
+    container.register(MediaManager, MediaManager())
     container.register(GlobalConfig, config)
     container.register(BlockRegistry, BlockRegistry())
     

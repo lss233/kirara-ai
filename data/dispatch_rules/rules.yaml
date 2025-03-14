@@ -1,7 +1,7 @@
 - rule_id: chat_normal
   name: 群聊AI对话
   description: 群聊中使用 /chat 开头对话或者 被@ 时触发聊天
-  workflow_id: test:test
+  workflow_id: chat:normal
   priority: 5
   enabled: true
   rule_groups:
@@ -24,7 +24,7 @@
 - rule_id: chat_creative
   name: 私聊AI对话
   description: 私聊时直接发送内容触发对话
-  workflow_id: test:test
+  workflow_id: chat:normal
   priority: 5
   enabled: true
   rule_groups:
