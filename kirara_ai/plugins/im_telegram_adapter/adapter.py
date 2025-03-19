@@ -3,7 +3,7 @@ import random
 from functools import lru_cache
 from typing import Optional
 
-import telegramify_markdown
+from telegramify_markdown import markdownify
 from pydantic import BaseModel, ConfigDict, Field
 from telegram import Bot, Update, User
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
@@ -181,7 +181,7 @@ class TelegramAdapter(IMAdapter, UserProfileAdapter, EditStateAdapter, BotProfil
                 await self.application.bot.send_chat_action(
                     chat_id=chat_id, action="typing"
                 )
-                text = telegramify_markdown.markdownify(element.text)
+                text = markdownify(element.text)
                 # 如果是非首条消息，适当停顿，模拟打字
                 if message.message_elements.index(element) > 0:
                     # 停顿通常和字数有关，但是会带一些随机

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from hypercorn.asyncio import serve
 from hypercorn.config import Config
 from quart import Quart, g, jsonify
@@ -127,7 +127,7 @@ def create_app(container: DependencyContainer) -> FastAPI:
             raise HTTPException(status_code=404, detail="File not found")
         return FileResponse(custom_static_assets[path])
     
-    @app.get("/", response_class=HTMLResponse)
+    @app.get("/")
     async def index():
         try:
             index_path = Path(STATIC_FOLDER) / "index.html"
@@ -140,34 +140,38 @@ def create_app(container: DependencyContainer) -> FastAPI:
 
     @app.middleware("http")
     async def spa_middleware(request: Request, call_next):
-        path = request.url.path
-        skip_paths = [route.path for route in app.routes]
-        skip_paths.remove("/")
-        
-        # 处理自定义静态资源
+        path = request.url.path    
+        # 如果请求路径在自定义静态资源列表中，则返回自定义静态资源
         if path in custom_static_assets:
             return await serve_custom_static(path)
+        
+        skip_paths = [route.path for route in app.routes]
+ 
+        # 如果路径在跳过路径列表中，则直接返回
+        if any(path == skip_path for skip_path in skip_paths):
+            return await call_next(request)
+        
+        skip_paths.remove("/")
         
         # 如果路径以 backend-api 开头，交由内置路由处理
         if any(path.startswith(skip_path) for skip_path in skip_paths):
             return await call_next(request)
 
-        try:
-            file_path = Path(STATIC_FOLDER) / path.lstrip('/')
-            # 检查路径穿越
-            if not file_path.resolve().is_relative_to(Path(STATIC_FOLDER).resolve()):
-                raise HTTPException(status_code=404, detail="Access denied")
-            
-            # 如果文件存在，返回文件
-            if file_path.is_file():
-                return FileResponse(file_path)
-                
-            # 否则返回 index.html（SPA 路由）
-            return FileResponse(Path(STATIC_FOLDER) / "index.html")
-            
-        except Exception as e:
-            logger.error(f"Error serving static file {path}: {e}")
-            return FileResponse(Path(STATIC_FOLDER) / "index.html")
+        file_path = Path(STATIC_FOLDER) / path.lstrip('/')
+        # 检查路径穿越
+        if not file_path.resolve().is_relative_to(Path(STATIC_FOLDER).resolve()):
+            raise HTTPException(status_code=404, detail="Access denied")
+        
+        # 如果文件存在，返回文件
+        if file_path.is_file():
+            return FileResponse(file_path)
+        
+        fallback_path = Path(STATIC_FOLDER) / "index.html"
+        # 否则返回 index.html（SPA 路由）
+        if fallback_path.is_file():
+            return FileResponse(fallback_path)
+        else:
+            return PlainTextResponse(status_code=404, content="route not found")            
     
     return app
 

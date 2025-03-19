@@ -1,14 +1,16 @@
-import base64
-import tempfile
 from abc import ABC, abstractmethod
-from typing import List, Optional
-
-import aiofiles
-import aiohttp
-import magic
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from kirara_ai.im.sender import ChatSender
+from kirara_ai.media import MediaManager, MediaType
 
+MIMETYPE_MAPPING = {
+    "image": MediaType.IMAGE,
+    "audio": MediaType.AUDIO,
+    "video": MediaType.VIDEO,
+    "file": MediaType.FILE,
+}
 
 # 定义消息元素的基类
 class MessageElement(ABC):
@@ -45,117 +47,132 @@ class MediaMessage(MessageElement):
         path: Optional[str] = None,
         data: Optional[bytes] = None,
         format: Optional[str] = None,
+        media_id: Optional[str] = None,
+        reference_id: Optional[str] = None,
+        source: Optional[str] = "im_message",
+        description: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        media_manager: Optional[MediaManager] = None,   
     ):
         self.url = url
         self.path = path
         self.data = data
         self.format = format
-        self.resource_type = "media"  # 由子类重写为具体类型
+        self.media_id = media_id
+        self._reference_id = reference_id or f"im_message_{id(self)}"
+        self._source = source
+        self._description = description
+        self._tags = tags or []
+        self._media_manager = media_manager or MediaManager()
 
-        # 根据传入的参数计算其他属性
-        if url:
-            self._from_url(url, format)
-        elif path:
-            self._from_path(path, format)
-        elif data and format:
-            self._from_data(data, format)
-        else:
-            raise ValueError("Must provide either url, path, or data + format.")
-
-    async def _load_data_from_path(self) -> None:
-        """异步从文件路径读取数据并赋值给self.data"""
-        async with aiofiles.open(self.path, "rb") as f:
-            self.data = await f.read()
-        await self._detect_format()
-
-    async def _load_data_from_url(self) -> None:
-        """异步从URL下载数据并赋值给self.data"""
-        async with aiohttp.ClientSession() as session:
-            async with session.get(self.url) as resp:
-                self.data = await resp.read()
-        await self._detect_format()
-
-    async def _detect_format(self) -> None:
-        """使用python-magic检测数据格式并赋值给self.format"""
-        if self.format:
+        # 如果已经有media_id，则直接使用
+        if media_id:
             return
-            
-        mime_type = magic.from_buffer(self.data, mime=True)
-        self.format = mime_type.split('/')[-1]
-        self.resource_type = mime_type.split('/')[0]
+
+        # 注册媒体文件
+        self._register_media()
+
+    def _register_media(self) -> None:
+        """注册媒体文件"""
+        media_manager = self._media_manager
+        
+        # 根据传入的参数注册媒体文件
+        self.media_id = media_manager.register_media(
+            url=self.url,
+            path=self.path,
+            data=self.data,
+            format=self.format,
+            source=self._source,
+            description=self._description,
+            tags=self._tags,
+            media_type=MIMETYPE_MAPPING[self.resource_type],
+            reference_id=self._reference_id
+        )
+        
+        # 获取媒体元数据
+        metadata = media_manager.get_metadata(self.media_id)
+        if metadata and metadata.format:
+            self.format = metadata.format
+            if metadata.media_type:
+                self.resource_type = metadata.media_type.value
 
     async def get_url(self) -> str:
         """获取媒体资源的URL"""
+        if not self.media_id:
+            raise ValueError("Media not registered")
+            
+        # 如果已经有URL，直接返回
         if self.url:
             return self.url
             
-        if not self.data:
-            if self.path:
-                await self._load_data_from_path()
-            else:
-                raise ValueError("No available media source")
-
-        return f"data:{self.resource_type}/{self.format};base64,{base64.b64encode(self.data).decode()}"
+        # 否则从媒体管理器获取
+        media_manager = self._media_manager
+        url = await media_manager.get_url(self.media_id)
+        if url:
+            self.url = url  # 缓存结果
+            return url
+            
+        raise ValueError("Failed to get media URL")
 
     async def get_path(self) -> str:
         """获取媒体资源的文件路径"""
-        if self.path:
+        if not self.media_id:
+            raise ValueError("Media not registered")
+            
+        # 如果已经有路径，直接返回
+        if self.path and Path(self.path).exists():
             return self.path
             
-        if not self.data:
-            if self.url:
-                await self._load_data_from_url()
-            else:
-                raise ValueError("No available media source")
-
-        with tempfile.NamedTemporaryFile(delete=False) as f:
-            f.write(self.data)
-            self.path = f.name
-        return self.path
+        # 否则从媒体管理器获取
+        media_manager = self._media_manager
+        file_path = await media_manager.get_file_path(self.media_id)
+        if file_path:
+            self.path = str(file_path)  # 缓存结果
+            return self.path
+            
+        raise ValueError("Failed to get media file path")
 
     async def get_data(self) -> bytes:
         """获取媒体资源的二进制数据"""
+        if not self.media_id:
+            raise ValueError("Media not registered")
+            
+        # 如果已经有数据，直接返回
         if self.data:
             return self.data
             
-        if self.path:
-            await self._load_data_from_path()
-            return self.data
-        if self.url:
-            await self._load_data_from_url()
-            return self.data
+        # 否则从媒体管理器获取
+        media_manager = self._media_manager
+        data = await media_manager.get_data(self.media_id)
+        if data:
+            self.data = data  # 缓存结果
+            return data
             
-        raise ValueError("No available media source")
+        raise ValueError("Failed to get media data")
+    
+    def get_description(self) -> str:
+        """获取媒体资源的描述"""
+        metadata = self._media_manager.get_metadata(self.media_id)
+        if metadata:
+            return metadata.description
+        return ""
 
-    def _from_url(self, url: str, format: Optional[str] = None):
-        """从 URL 计算其他属性"""
-        self.url = url
-        self.path = None
-        self.data = None
-        self.format = format
-
-    def _from_path(self, path: str, format: Optional[str] = None):
-        """从文件路径计算其他属性"""
-        self.path = path
-        self.url = None
-        self.data = None
-        self.format = format
-
-    def _from_data(self, data: bytes, format: str):
-        """从数据和格式计算其他属性"""
-        self.data = data
-        self.format = format
-        self.url = None
-        self.path = None
-        
-    def to_dict(self):
-        return {
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        result = {
             "type": self.resource_type,
-            "url": self.url,
-            "path": self.path,
-            "data": base64.b64encode(self.data).decode() if self.data else None,
-            "format": self.format,
+            "media_id": self.media_id,
         }
+        
+        # 添加可选属性
+        if self.format:
+            result["format"] = self.format
+        if self.url:
+            result["url"] = self.url
+        if self.path:
+            result["path"] = self.path
+            
+        return result
 
 
 # 定义语音消息
@@ -163,13 +180,9 @@ class VoiceMessage(MediaMessage):
     resource_type = "audio"
     
     def to_dict(self):
-        return {
-            "type": "voice",
-            "url": self.url,
-            "path": self.path,
-            "data": base64.b64encode(self.data).decode() if self.data else None,
-            "format": self.format,
-        }
+        result = super().to_dict()
+        result["type"] = "voice"
+        return result
 
     def to_plain(self):
         return "[VoiceMessage]"
@@ -180,19 +193,15 @@ class ImageMessage(MediaMessage):
     resource_type = "image"
     
     def to_dict(self):
-        return {
-            "type": "image",
-            "url": self.url,
-            "path": self.path,
-            "data": base64.b64encode(self.data).decode() if self.data else None,
-            "format": self.format,
-        }
+        result = super().to_dict()
+        result["type"] = "image"
+        return result
 
     def to_plain(self):
-        return "[ImageMessage]"
+        return f"[ImageMessage:url={self.url},alt={self.get_description()}]"
 
     def __repr__(self):
-        return f"ImageMessage(url={self.url}, path={self.path}, format={self.format})"
+        return f"ImageMessage(media_id={self.media_id}, url={self.url}, path={self.path}, format={self.format})"
 
 # 定义@消息元素
 # :deprecated
@@ -220,7 +229,7 @@ class MentionElement(MessageElement):
 
     def to_plain(self):
         return f"@{self.target.display_name or self.target.user_id}"
-    
+
     def __repr__(self):
         return f"MentionElement(target={self.target})"
 
@@ -242,27 +251,23 @@ class ReplyElement(MessageElement):
 
 
 # 定义文件消息元素
-class FileElement(MediaMessage):
+class FileMessage(MediaMessage):
     resource_type = "file"
     
     def to_dict(self):
-        return {
-            "type": "file",
-            "url": self.url,
-            "path": self.path,
-            "data": base64.b64encode(self.data).decode() if self.data else None,
-            "format": self.format,
-        }
+        result = super().to_dict()
+        result["type"] = "file"
+        return result
 
     def to_plain(self):
         return f"[File:{self.path or self.url or 'unnamed'}]"
 
     def __repr__(self):
-        return f"FileElement(url={self.url}, path={self.path}, format={self.format})"
+        return f"FileElement(media_id={self.media_id}, url={self.url}, path={self.path}, format={self.format})"
 
 
 # 定义JSON消息元素
-class JsonElement(MessageElement):
+class JsonMessage(MessageElement):
 
     def __init__(self, data: str):
         self.data = data
@@ -271,14 +276,14 @@ class JsonElement(MessageElement):
         return {"type": "json", "data": {"data": self.data}}
 
     def to_plain(self):
-        return "[JSON Message]"
+        return f"[JSON:{self.data}]"
 
     def __repr__(self):
-        return f"JsonElement(data={self.data})"
+        return f"JsonMessage(data={self.data})"
 
 
 # 定义表情消息元素
-class FaceElement(MessageElement):
+class EmojiMessage(MessageElement):
 
     def __init__(self, face_id: str):
         self.face_id = face_id
@@ -291,21 +296,23 @@ class FaceElement(MessageElement):
         return f"[Face:{self.face_id}]"
 
     def __repr__(self):
-        return f"FaceElement(face_id={self.face_id})"
+        return f"EmojiMessage(face_id={self.face_id})"
 
 
 # 定义视频消息元素
-class VideoElement(MediaMessage):
+class VideoMessage(MediaMessage):
     resource_type = "video"
     
     def to_dict(self):
-        return {"type": "video", "data": {"file": self.file}}
+        result = super().to_dict()
+        result["type"] = "video"
+        return result
 
     def to_plain(self):
-        return "[Video Message]"
+        return f"[Video:{self.path or self.url or 'unnamed'}]"
 
     def __repr__(self):
-        return f"VideoElement(file={self.file})"
+        return f"VideoMessage(media_id={self.media_id}, url={self.url}, path={self.path}, format={self.format})"
 
 
 # 定义消息类
@@ -380,6 +387,15 @@ class IMMessage:
             "raw_message": self.raw_message,
         }
 
+
+# backward compatibility
+# deprecated
+FileElement = FileMessage
+ImageElement = ImageMessage
+VoiceElement = VoiceMessage
+VideoElement = VideoMessage
+EmojiElement = EmojiMessage
+JsonElement = JsonMessage
 
 # 示例用法
 if __name__ == "__main__":

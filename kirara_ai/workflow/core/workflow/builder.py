@@ -141,6 +141,7 @@ class WorkflowBuilder:
     """
 
     def __init__(self, name: str):
+        self.id = None
         self.name = name
         self.description = ""
         self.head: Node = None
@@ -378,7 +379,7 @@ class WorkflowBuilder:
                 block.name = self._generate_unique_name(block.__class__.__name__)
             block.container = container
 
-        return Workflow(self.name, self.blocks, self.wires)
+        return Workflow(name = self.name, blocks=self.blocks, wires=self.wires,id = self.id)
 
     def update_position(self, name: str, position: Tuple[int, int]):
         """更新节点的位置"""

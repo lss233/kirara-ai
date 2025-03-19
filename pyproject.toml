@@ -40,6 +40,7 @@ dependencies = [
     "setuptools",
     "tomli>=2.0.0",
     "pre-commit",
+    "curl_cffi",
     "python-magic ; platform_system != 'Windows'",
     "python-magic-bin ; platform_system == 'Windows'",
     "ymbotpy",
@@ -51,7 +52,7 @@ kirara_ai = "kirara_ai.__main__:main"
 
 [project.urls]
 "Homepage" = "https://github.com/lss233/chatgpt-mirai-qq-bot"
-"Bug Tracker" = "https://github.com/lss233/chatgpt-mirai-qq-bot/issues" 
+"Bug Tracker" = "https://github.com/lss233/chatgpt-mirai-qq-bot/issues"
 "Documentation" = "https://kirara-docs.app.lss233.com"
 
 [tool.setuptools.packages.find]
