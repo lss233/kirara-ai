@@ -1,5 +1,5 @@
 import asyncio
-from typing import List
+from typing import List, Optional, cast
 
 import aiohttp
 import requests
@@ -7,9 +7,10 @@ from pydantic import ConfigDict
 
 from kirara_ai.config.global_config import LLMBackendConfig
 from kirara_ai.llm.adapter import AutoDetectModelsProtocol, LLMBackendAdapter
-from kirara_ai.llm.format.message import LLMChatContentPartType, LLMChatImageContent, LLMChatTextContent
-from kirara_ai.llm.format.request import LLMChatRequest
-from kirara_ai.llm.format.response import LLMChatResponse, Message, Usage
+from kirara_ai.llm.format.message import (LLMChatContentPartType, LLMChatImageContent, LLMChatMessage,
+                                          LLMChatTextContent, LLMToolCallContent, LLMToolResultContent)
+from kirara_ai.llm.format.request import LLMChatRequest, Tool
+from kirara_ai.llm.format.response import Function, LLMChatResponse, Message, ToolCall, Usage
 from kirara_ai.logger import get_logger
 from kirara_ai.media.manager import MediaManager
 from kirara_ai.tracing import trace_llm_chat
@@ -19,7 +20,7 @@ class OllamaConfig(LLMBackendConfig):
     api_base: str = "http://localhost:11434"
     model_config = ConfigDict(frozen=True)
 
-async def resolv_media_ids(media_ids: list[str], media_manager: MediaManager) -> List[str]:
+async def resolve_media_ids(media_ids: list[str], media_manager: MediaManager) -> List[str]:
     result = []
     for media_id in media_ids:
         media = media_manager.get_media(media_id)
@@ -27,6 +28,59 @@ async def resolv_media_ids(media_ids: list[str], media_manager: MediaManager) ->
             base64_data = await media.get_base64()
             result.append(base64_data)
     return result
+
+def convert_llm_response(response_data: dict[str, dict]) -> list[LLMChatContentPartType]:
+    # 在官方文档中无法得知tool_call时content是否为空，因此两个都记录下来
+    content = [LLMChatTextContent(text=response_data["message"].get("content", ""))]
+    calls = []
+    if response_data["message"].get("tool_calls", None):
+        for tool_call in response_data["message"]["tool_calls"]:
+            tool_call: dict[str, dict] # 类型标注，运行时将被忽略
+            calls.append(
+                LLMToolCallContent(
+                    name=tool_call["function"]["name"],
+                    parameters=tool_call["function"].get("arguments", None)
+                )
+            )
+        content.extend(calls)
+    return content
+
+def convert_non_tool_message(msg: LLMChatMessage, media_manager: MediaManager, loop: asyncio.AbstractEventLoop):
+    text_content = ""
+    images = []
+    for part in msg.content:
+        if isinstance(part, LLMChatTextContent):
+            text_content += part.text
+        elif isinstance(part, LLMChatImageContent):
+            images.append(part.media_id)
+        elif isinstance(part, LLMToolCallContent):
+            # 不太确定是否 ollama 需要tool_call信息。等待后续手动验证
+            continue
+    message = {"role": msg.role, "content": text_content}
+    if images:
+        message["images"] = loop.run_until_complete(resolve_media_ids(images, media_manager))
+    return message
+
+
+def resolve_tool_calls(response_data: dict[str, dict]) -> Optional[list[ToolCall]]:
+    if tool_calls := response_data["message"].get("tool_calls", None):
+        calls: list[ToolCall] = []
+        for call in tool_calls:
+            call: dict[str, dict] # 类型标注，运行时将被忽略
+            calls.append(ToolCall(
+                model = "ollama",
+                function = Function(
+                    name = call["function"]["name"], 
+                    arguments = call["function"].get("arguments", None),
+                )
+            ))
+        return calls
+    else:
+        return None
+
+def convert_tools_to_ollama_format(tools: list[Tool]) -> list[dict]:
+    # 这里将其独立出来方便应对后续接口改动
+    return [tool.model_dump(exclude={"strict": True, "parameters": {"additionalProperties": True}}) for tool in tools]
 
 class OllamaAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
     def __init__(self, config: OllamaConfig):
@@ -44,21 +98,13 @@ class OllamaAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
         asyncio.set_event_loop(loop)
         for msg in req.messages:
             # 收集每条消息中的文本内容和图像
-            text_content = ""
-            images = []
-            
-            for part in msg.content:
-                if isinstance(part, LLMChatTextContent):
-                    text_content += part.text
-                elif isinstance(part, LLMChatImageContent):
-                    images.append(part.media_id)
-            
-            # 创建 Ollama 格式的消息
-            message = {"role": msg.role, "content": text_content}
-            if images:
-                message["images"] = loop.run_until_complete(resolv_media_ids(images, self.media_manager)) # type: ignore
-            
-            messages.append(message)
+            if msg.role == "tool":
+                # 官网没有如何传递 tool_result 的例子，这是查看多篇教程后得出的结论
+                # 目前 ollama 不需要 tool_call 信息，判断结果是否需要估计根据上下文推断。Tips: 顺序至关重要
+                parts = cast(list[LLMToolResultContent], msg.content)
+                messages.extend([{"role": "tool", "content": part.content} for part in parts])
+            else:
+                messages.append(convert_non_tool_message(msg, self.media_manager, loop))
 
         data = {
             "model": req.model,
@@ -69,6 +115,7 @@ class OllamaAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
                 "top_p": req.top_p,
                 "num_predict": req.max_tokens,
                 "stop": req.stop,
+            "tools": convert_tools_to_ollama_format(req.tools) if req.tools else None,
             },
         }
 
@@ -87,13 +134,14 @@ class OllamaAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
             print(f"API Response: {response.text}")
             raise e
         # https://github.com/ollama/ollama/blob/main/docs/api.md#generate-a-chat-completion
-        content: List[LLMChatContentPartType] = [LLMChatTextContent(text=response_data["message"]["content"])]
+
         return LLMChatResponse(
             model=req.model,
             message=Message(
-                content=content,
+                content= convert_llm_response(response_data),
                 role="assistant",
                 finish_reason="stop",
+                tool_calls= resolve_tool_calls(response_data),
             ),
             usage=Usage(
                 prompt_tokens=response_data['prompt_eval_count'],

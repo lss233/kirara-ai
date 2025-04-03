@@ -1,4 +1,3 @@
-from .message import LLMChatImageContent, LLMChatMessage, LLMChatTextContent
+from .message import LLMChatImageContent, LLMChatMessage, LLMChatTextContent, LLMToolCallContent, LLMToolResultContent
 
-__all__ = ["LLMChatMessage", "LLMChatTextContent", "LLMChatImageContent"]
-
+__all__ = ["LLMChatMessage", "LLMChatTextContent", "LLMChatImageContent", "LLMToolCallContent", "LLMToolResultContent"]

@@ -1,6 +1,7 @@
 import re
 from datetime import datetime
 from typing import Annotated, Any, Dict, List, Optional
+from abc import ABC, abstractmethod
 
 from kirara_ai.im.message import ImageMessage, IMMessage, MessageElement, TextMessage
 from kirara_ai.im.sender import ChatSender
@@ -179,3 +180,72 @@ class ChatResponseConverter(Block):
                 message_elements.append(ImageMessage(media_id=part.media_id))
         msg = IMMessage(sender=ChatSender.get_bot_sender(), message_elements=message_elements)
         return {"msg": msg}
+
+class ExampleFunction(Block, ABC):
+    """
+    这个块是抽象function block，没有实际功能，你可以继承这个类，也可以参考这个类自己实现（遵从inputs, outputs格式约定）。
+    """
+    name = "tool"
+    inputs = {
+        "im_msg": Input("im_msg", "im 消息", IMMessage, "im 消息", True),
+        "tool_call": Input("call_tools", "llm 回应", LLMChatResponse, "接收llm 的函数调用请求，你应该执行函数调用", True),
+    }
+    outputs = {
+        "send_memory": Output("send_memory", "发送记忆模块", list[LLMChatMessage], "你应该在将函数调用期间的llm对话记录存储到记忆模块中"),
+        # TODO: 请将所有LLMChatMessage 整合为一个LLMChatRequest。包含tool调用过程中的toolCallContent和toolResultContent。
+        # EXAMPLE: 将接收到的call_tools: LLMChatResponse 中LLMChatMessage提取出来，设定role为assistance, 
+        # 然后将所有函数调用结果按照LLMChaMessage(role="tool", content=[LLMToolResultContent])，整合为另外一个LLMChatMessage，拼接到上次构建的LLMChatRequest中。
+        "request_body": Output("tool_result", "工具回应", LLMChatRequest, "请将全部上下文信息整合为LLMChatRequest")
+    }
+    container: DependencyContainer
+
+    @abstractmethod
+    def __init__(self):
+        pass
+    
+    @abstractmethod
+    def execute(self, **kwargs) -> dict[str, Any]:
+        return super().execute(**kwargs)
+    
+class FunctionCalling(Block):
+    """
+    这个类只负责联系llm, 请将tools变量或者将tool_result变量整合为LLMChatRequest传入。注意同时传入tool_call和tool_result信息。
+    注意: 你实现的function block 应该将too_result存入memory中, 本块不会自动存入函数调用期间的llm对话记录.
+
+    具体block信息流转流程图将放置于后续教程中。详情请参见kirara wiki function calling部分。
+    """
+    name = "function_calling"
+    inputs = {
+        "request_body": Input("request_body", "llm 函数调用请求体", LLMChatRequest, "传递一个规范的函数调用请求体"),
+    }
+    outputs = {
+        "resp": Output("resp", "llm 回应", LLMChatResponse, "返回的response, llm认为无需调用tool或者根据tool结果返回"),
+        "tool_call": Output("call_tools", "llm 回应", LLMChatResponse, "返回的response带有tool_calls字段，你需要根据此字段进行下一个动作")
+    }
+    container: DependencyContainer
+    
+    def __init__(self, model_name: Annotated[
+            str, 
+            # 等待实现： 只列出支持function_calling的模型
+            ParamMeta(label="模型 ID, 支持函数调用且不可为空", description="支持函数调用的模型", options_provider=model_name_options_provider)
+        ]): 
+        self.model_name = model_name
+        self.logger = get_logger("FunctionCallingBlock")
+
+    def execute(self, request_body: LLMChatRequest) -> Dict[str, Any]:
+        if not self.model_name:
+            raise ValueError("need a model name which support function calling")
+        else:
+            self.logger.info(f"Using  model: {self.model_name} to execute function calling")
+        llm = self.container.resolve(LLMManager).get_llm(self.model_name)
+        if not llm:
+            raise ValueError(f"LLM {self.model_name} not found, please check the model name")
+        # 在这里指定llm的model
+        request_body.model = self.model_name
+        response: LLMChatResponse = llm.chat(request_body)
+        if not response.message.tool_calls:
+            self.logger.debug("No tool calls found, return response directly")
+            return {"resp": response}
+        else:
+            self.logger.debug("Tool calls found, return response with tool calls")
+            return {"tool_call": response}

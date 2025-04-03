@@ -22,4 +22,7 @@ build/
 /web/
 botpy.log*
 data/frpc/
-data/db/
+data/db
+.venv/
+uv.lock
+.mypy_cache/

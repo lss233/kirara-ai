@@ -67,6 +67,10 @@ where = ["."]
 include = ["kirara_ai*"]
 namespaces = true
 
+[[tool.uv.index]]
+url = "https://mirrors.ustc.edu.cn/pypi/simple"
+default = true
+
 [options]
 include_package_data = true
 

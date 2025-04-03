@@ -10,7 +10,7 @@ from .game.dice import DiceRoll
 from .game.gacha import GachaSimulator
 from .im.messages import AppendIMMessage, GetIMMessage, IMMessageToText, SendIMMessage, TextToIMMessage
 from .im.states import ToggleEditState
-from .llm.chat import ChatCompletion, ChatMessageConstructor, ChatResponseConverter
+from .llm.chat import ChatCompletion, ChatMessageConstructor, ChatResponseConverter, FunctionCalling
 from .memory.chat_memory import ChatMemoryQuery, ChatMemoryStore
 from .system.help import GenerateHelp
 
@@ -46,6 +46,7 @@ def register_system_blocks(registry: BlockRegistry):
         "LLM: 构造对话记录",
     )
     registry.register("chat_completion", "internal", ChatCompletion, "LLM: 执行对话")
+    registry.register("chat_function_calling", "internal", FunctionCalling, "LLM: 函数调用")
     registry.register(
         "chat_response_converter",
         "internal",

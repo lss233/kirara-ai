@@ -6,13 +6,45 @@ import pytest
 from kirara_ai.im.message import IMMessage, TextMessage
 from kirara_ai.im.sender import ChatSender
 from kirara_ai.ioc.container import DependencyContainer
-from kirara_ai.llm.format.message import LLMChatTextContent
-from kirara_ai.llm.format.response import LLMChatResponse, Message
+from kirara_ai.llm.format.message import LLMChatTextContent, LLMChatMessage
+from kirara_ai.llm.format.response import LLMChatResponse, Message, ToolCall, Function
+from kirara_ai.llm.format.request import Tool, ToolParameters, LLMChatRequest
 from kirara_ai.llm.llm_manager import LLMManager
 from kirara_ai.workflow.core.execution.executor import WorkflowExecutor
 from kirara_ai.workflow.implementations.blocks.llm.chat import (ChatCompletion, ChatMessageConstructor,
-                                                                ChatResponseConverter)
+                                                                ChatResponseConverter, FunctionCalling)
 
+
+def get_tools() -> list[Tool]:
+    return [
+        Tool(
+            type="function",
+            name="get_weather",
+            description="Get the current weather in a given location",
+            parameters=ToolParameters(
+                type="object",
+                properties = {
+                    "location": {
+                        "type": "string",
+                        "description": "The city and state, e.g. San Francisco, CA"
+                    }
+                },
+                required=["location"],
+            )
+        )
+    ]
+
+def get_llm_tool_calls() -> list[ToolCall]:
+    return [
+        ToolCall(
+            id = "call_e33147bcb72525ed",
+            model = "openai",
+            function = Function(
+                name="get_weather",
+                parameters={"location": "San Francisco, CA"}
+            )
+        )
+    ]
 
 # 创建模拟的 LLM 类
 class MockLLM:
@@ -27,6 +59,21 @@ class MockLLM:
                    "completion_tokens": 20, "total_tokens": 30}
         )
 
+class MockLLMFunctionCalling:
+    def chat(self, request):
+        return LLMChatResponse(
+            message=Message(
+                role="assistant",
+                content=[LLMChatTextContent(text="这是 AI 的回复")],
+                tool_calls=get_llm_tool_calls()
+            ),
+            model="gpt-3.5-turbo",
+            usage={
+                "prompt_tokens": 10,
+                "completion_tokens": 20, 
+                "total_tokens": 30
+            }
+        )
 
 # 创建模拟的 LLMManager 类
 class MockLLMManager(LLMManager):
@@ -38,7 +85,10 @@ class MockLLMManager(LLMManager):
 
     def get_llm(self, model_id):
         return self.mock_llm
-
+    
+class MockLLMManagerFunctionCalling(MockLLMManager):
+    def __init__(self):
+        self.mock_llm = MockLLMFunctionCalling()
 
 @pytest.fixture
 def container():
@@ -180,3 +230,49 @@ def test_chat_response_converter():
     assert "msg" in result
     assert isinstance(result["msg"], IMMessage)
     assert "这是 AI 的回复" in result["msg"].content
+
+@pytest.mark.asyncio
+async def test_chat_function_calling():
+    """测试函数调用块"""
+    # 构造块需求参数
+    chat_request = LLMChatRequest(
+        model="gpt-3.5-turbo",
+        tools=get_tools(),
+        messages=[LLMChatMessage(role = "user", content=[LLMChatTextContent(text="今天天气如何？")])]
+    )
+
+    # 创建容器
+    container = DependencyContainer()
+
+    # 获取事件循环
+    loop = asyncio.get_event_loop()
+
+    # 注册到容器
+    container.register(LLMManager, MockLLMManagerFunctionCalling())
+    container.register(asyncio.AbstractEventLoop, loop)
+
+    # 创建块
+    block = FunctionCalling(model_name="gpt-3.5-turbo")
+    block.container = container
+
+    # 执行块 - step 1
+    result = block.execute(request_body=chat_request)
+
+    # 验证结果, llm 进行了函数调用请求
+    assert "tool_call" in result
+    assert "resp" not in result
+    assert isinstance(result["tool_call"], LLMChatResponse)
+    assert result["tool_call"].message.content[0].text == "这是 AI 的回复"
+    assert result["tool_call"].message.tool_calls == get_llm_tool_calls()
+
+    # 执行块 - step 2
+    # 重新注册 LLMManager, 更换有 function calling 的llm
+    container.register(LLMManager, MockLLMManager())
+    result = block.execute(request_body=chat_request)
+
+    # 验证结果, llm 未进行函数调用请求
+    assert "resp" in result
+    assert "tool_call" not in result
+    assert isinstance(result["resp"], LLMChatResponse)
+    assert result["resp"].message.content[0].text == "这是 AI 的回复"
+    assert result["resp"].message.tool_calls is None
