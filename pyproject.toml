@@ -50,7 +50,8 @@ dependencies = [
     "Pillow",
     "pytz",
     "sqlalchemy",
-    "alembic"
+    "alembic",
+    "mcp"
 ]
 
 

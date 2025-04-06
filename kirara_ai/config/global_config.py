@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -26,6 +26,22 @@ class LLMConfig(BaseModel):
     api_backends: List[LLMBackendConfig] = Field(
         default=[], description="LLM API后端列表"
     )
+
+class MCPServerConfig(BaseModel):
+    """MCP服务器配置"""
+    
+    id: str = Field(description="服务器标识ID")
+    description: str = Field(default="", description="服务器描述")
+    url: Optional[str] = Field(default="", description="服务器URL")
+    command: Optional[str] = Field(default="", description="服务器命令")
+    args: List[str] = Field(default_factory=list, description="服务器参数")
+    connection_type: str = Field(default="stdio", description="连接类型: stdio/sse")
+    enable: bool = Field(default=True, description="是否启用")
+    
+
+class MCPConfig(BaseModel):
+    """MCP配置"""
+    servers: List[MCPServerConfig] = Field(default=[], description="MCP服务器列表")
 
 
 class DefaultConfig(BaseModel):
@@ -84,19 +100,23 @@ class FrpcConfig(BaseModel):
     token: str = Field(default="", description="FRPC 连接令牌")
     remote_port: int = Field(default=0, description="远程端口，0 表示随机分配")
 
+
 class SystemConfig(BaseModel):
     """系统配置"""
 
     timezone: str = Field(default="Asia/Shanghai", description="时区")
+
 
 class TracingConfig(BaseModel):
     """Tracing 配置"""
     
     llm_tracing_content: bool = Field(default=False, description="是否记录 LLM 请求内容")
 
+
 class GlobalConfig(BaseModel):
     ims: List[IMConfig] = Field(default=[], description="IM配置列表")
     llms: LLMConfig = LLMConfig()
+    mcp: MCPConfig = MCPConfig()
     defaults: DefaultConfig = DefaultConfig()
     memory: MemoryConfig = MemoryConfig()
     web: WebConfig = WebConfig()

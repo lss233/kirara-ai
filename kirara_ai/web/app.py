@@ -21,6 +21,7 @@ from .api.block import block_bp
 from .api.dispatch import dispatch_bp
 from .api.im import im_bp
 from .api.llm import llm_bp
+from .api.mcp import mcp_bp
 from .api.media import media_bp
 from .api.plugin import plugin_bp
 from .api.system import system_bp
@@ -81,6 +82,7 @@ def create_web_api_app(container: DependencyContainer) -> Quart:
     app.register_blueprint(system_bp, url_prefix="/api/system")
     app.register_blueprint(media_bp, url_prefix="/api/media")
     app.register_blueprint(tracing_bp, url_prefix="/api/tracing")
+    app.register_blueprint(mcp_bp, url_prefix="/api/mcp")
 
     @app.errorhandler(Exception)
     def handle_exception(error):
