@@ -171,8 +171,6 @@ class MCPServerManager:
             # 从工具缓存中移除该服务器的工具
             self._remove_server_tools_from_cache(server_id)
             
-            del self.servers[server_id]
-            
             logger.info(f"Successfully disconnected from MCP server {server_id}")
             return True
             

@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import AsyncExitStack
 from typing import Optional
 
@@ -6,8 +7,10 @@ from mcp.client.sse import sse_client
 from pydantic import AnyUrl
 
 from kirara_ai.config.global_config import MCPServerConfig
+from kirara_ai.logger import get_logger
 from kirara_ai.mcp.models import MCPConnectionState
 
+logger = get_logger("MCP.Server")
 
 class MCPServer:
     """
@@ -20,7 +23,6 @@ class MCPServer:
     使其适应 Kirara AI 的生命周期。
     """
     session: Optional[ClientSession] = None
-    exit_stack: AsyncExitStack
     state: MCPConnectionState = MCPConnectionState.DISCONNECTED
     
     def __init__(self, server_config: MCPServerConfig):
@@ -31,9 +33,12 @@ class MCPServer:
             server_config: MCP 服务器配置
         """
         self.server_config = server_config
-        self.exit_stack = AsyncExitStack()
         self.session = None
         self.state = MCPConnectionState.DISCONNECTED
+        self._lifecycle_task = None
+        self._shutdown_event = asyncio.Event()
+        self._connected_event = asyncio.Event()
+        self._client = None
         
     async def connect(self):
         """
@@ -49,12 +54,31 @@ class MCPServer:
             
         try:
             self.state = MCPConnectionState.CONNECTING
-            await self._initialize()
-            self.state = MCPConnectionState.CONNECTED
-            return True
+            
+            # 重置事件
+            self._shutdown_event.clear()
+            self._connected_event.clear()
+            
+            # 创建并启动生命周期任务
+            if self._lifecycle_task is None or self._lifecycle_task.done():
+                self._lifecycle_task = asyncio.create_task(self._lifecycle_manager())
+            
+            # 等待连接完成或超时
+            try:
+                await asyncio.wait_for(self._connected_event.wait(), timeout=30.0)
+                if self.state != MCPConnectionState.CONNECTED:
+                    # 连接失败
+                    return False
+                return True
+            except asyncio.TimeoutError:
+                logger.error(f"连接到 MCP 服务器 {self.server_config.id} 超时")
+                await self.disconnect()  # 超时时断开连接
+                return False
+                
         except Exception as e:
             self.state = MCPConnectionState.ERROR
-            raise e
+            logger.opt(exception=e).error(f"连接 MCP 服务器 {self.server_config.id} 时发生错误")
+            return False
     
     async def disconnect(self):
         """
@@ -63,53 +87,85 @@ class MCPServer:
         Returns:
             bool: 断开连接是否成功
         """
-        if self.state != MCPConnectionState.CONNECTED:
-            return False
+        if self.state == MCPConnectionState.DISCONNECTED:
+            return True
             
         try:
             self.state = MCPConnectionState.DISCONNECTING
-            await self._shutdown()
+            
+            # 发送关闭信号
+            self._shutdown_event.set()
+            
+            # 等待生命周期任务完成
+            if self._lifecycle_task and not self._lifecycle_task.done():
+                try:
+                    await asyncio.wait_for(self._lifecycle_task, timeout=10.0)
+                except asyncio.TimeoutError:
+                    # 如果任务没有及时完成，取消它
+                    self._lifecycle_task.cancel()
+                    try:
+                        await self._lifecycle_task
+                    except (asyncio.CancelledError, Exception):
+                        pass
+            
             self.state = MCPConnectionState.DISCONNECTED
             return True
         except Exception as e:
             self.state = MCPConnectionState.ERROR
-            raise e
+            logger.opt(exception=e).error(f"断开 MCP 服务器 {self.server_config.id} 连接时发生错误")
+            return False
         
-    async def _initialize(self):
+    async def _lifecycle_manager(self):
         """
-        根据配置初始化 MCP 服务器连接
+        服务器生命周期管理任务
         
-        根据 server_config 中的配置选择 stdio 或 SSE 模式进行连接
+        负责服务器的连接、运行和断开连接的完整生命周期
         """
-        if self.server_config.connection_type == "stdio":
-            await self._init_stdio_server()
-        elif self.server_config.connection_type == "sse":
-            await self._init_sse_server()
-        else:
-            raise ValueError(f"Unsupported server connection type: {self.server_config.connection_type}")
-
-    async def _init_stdio_server(self):
-        """初始化 stdio 模式的 MCP 服务器连接"""
-        if self.server_config.command is None:
-            raise ValueError("command is required in stdio mode")
+        exit_stack = AsyncExitStack()
         
-        context = stdio_client(StdioServerParameters(command=self.server_config.command, args=self.server_config.args))
-        read, write = await self.exit_stack.enter_async_context(context)
-        self.session = await self.exit_stack.enter_async_context(ClientSession(read, write))
-        await self.session.initialize()
+        try:
+            # 初始化连接
+            if self.server_config.connection_type == "stdio":
+                self._client = stdio_client(StdioServerParameters(
+                    command=self.server_config.command, 
+                    args=self.server_config.args
+                ))
+            elif self.server_config.connection_type == "sse":
+                self._client = sse_client(self.server_config.url)
+            else:
+                raise ValueError(f"不支持的服务器连接类型: {self.server_config.connection_type}")
+            
+            # 使用 exit_stack 管理资源
+            read, write = await exit_stack.enter_async_context(self._client)
+            self.session = await exit_stack.enter_async_context(ClientSession(read, write))
+            
+            # 初始化会话
+            await self.session.initialize()
+            
+            # 更新状态并通知连接完成
+            self.state = MCPConnectionState.CONNECTED
+            self._connected_event.set()
+            
+            # 等待关闭信号
+            await self._shutdown_event.wait()
+            
+        except Exception as e:
+            # 连接失败
+            self.state = MCPConnectionState.ERROR
+            self._connected_event.set()  # 通知连接过程已完成（虽然是失败的）
+            logger.opt(exception=e).error(f"MCP server {self.server_config.id} lifecycle task error")
+        finally:
+            # 清理资源
+            self.session = None
+            self._client = None
+            
+            # 关闭所有资源
+            await exit_stack.aclose()
+            
+            # 如果状态仍然是 DISCONNECTING，则更新为 DISCONNECTED
+            if self.state == MCPConnectionState.DISCONNECTING:
+                self.state = MCPConnectionState.DISCONNECTED
 
-    async def _init_sse_server(self):
-        """初始化 SSE 模式的 MCP 服务器连接"""
-        context = sse_client(self.server_config.url)
-        read, write = await self.exit_stack.enter_async_context(context)
-        self.session = await self.exit_stack.enter_async_context(ClientSession(read, write))
-        await self.session.initialize()
-    
-    async def _shutdown(self):
-        """关闭 MCP 服务器连接"""
-        await self.exit_stack.aclose()
-        self.session = None
-    
     # 工具相关方法
     
     async def get_tools(self) -> types.ListToolsResult:
