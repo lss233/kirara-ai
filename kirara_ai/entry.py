@@ -17,6 +17,7 @@ from kirara_ai.ioc.container import DependencyContainer
 from kirara_ai.llm.llm_manager import LLMManager
 from kirara_ai.llm.llm_registry import LLMBackendRegistry
 from kirara_ai.logger import get_logger
+from kirara_ai.mcp.manager import MCPServerManager
 from kirara_ai.media import MediaManager
 from kirara_ai.media.carrier import MediaCarrierRegistry, MediaCarrierService
 from kirara_ai.memory.composes import DefaultMemoryComposer, DefaultMemoryDecomposer, MultiElementDecomposer
@@ -181,6 +182,9 @@ def init_application() -> DependencyContainer:
     container.register(WorkflowDispatcher, workflow_dispatcher)
 
     container.register(WebServer, WebServer(container))
+    
+    mcp_manager = MCPServerManager(container)
+    container.register(MCPServerManager, mcp_manager)
 
     # 初始化记忆系统
     logger.info("Initializing memory system...")
@@ -214,6 +218,11 @@ def init_application() -> DependencyContainer:
     llm_manager = container.resolve(LLMManager)
     logger.info("Loading LLMs")
     llm_manager.load_config()
+    
+    # 加载MCP服务器
+    mcp_manager = container.resolve(MCPServerManager)
+    logger.info("Loading MCP servers")
+    mcp_manager.load_servers()
 
     return container
 
@@ -234,6 +243,11 @@ def run_application(container: DependencyContainer):
     logger.info("Starting adapters")
     im_manager = container.resolve(IMManager)
     im_manager.start_adapters(loop=loop)
+    
+    # 加载MCP服务器
+    mcp_manager = container.resolve(MCPServerManager)
+    logger.info("Connecting to MCP servers")
+    mcp_manager.connect_all_servers(loop=loop)
 
     # 注册信号处理函数
     signal.signal(signal.SIGINT, _signal_handler)
@@ -279,6 +293,7 @@ def run_application(container: DependencyContainer):
         try:
             # 停止所有 adapter
             im_manager.stop_adapters(loop=loop)
+            mcp_manager.disconnect_all_servers(loop=loop)
             # 停止插件
             plugin_loader.stop_plugins()
         except Exception as e:

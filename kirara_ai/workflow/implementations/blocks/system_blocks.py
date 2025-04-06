@@ -2,6 +2,7 @@ from kirara_ai.workflow.core.block.registry import BlockRegistry
 from kirara_ai.workflow.implementations.blocks.im.basic import ExtractChatSender
 from kirara_ai.workflow.implementations.blocks.llm.basic import LLMResponseToText
 from kirara_ai.workflow.implementations.blocks.llm.image import SimpleStableDiffusionWebUI
+from kirara_ai.workflow.implementations.blocks.mcp.tool import MCPCallTool
 from kirara_ai.workflow.implementations.blocks.memory.clear_memory import ClearMemory
 from kirara_ai.workflow.implementations.blocks.system.basic import (CurrentTimeBlock, TextBlock, TextConcatBlock,
                                                                     TextExtractByRegexBlock, TextReplaceBlock)
@@ -71,3 +72,6 @@ def register_system_blocks(registry: BlockRegistry):
     # 系统相关 blocks
     registry.register("generate_help", "system", GenerateHelp, "系统: 生成帮助")
     registry.register("clear_memory", "system", ClearMemory, "系统: 清空记忆")
+    
+    # MCP 相关 blocks
+    registry.register("mcp_call_tool", "mcp", MCPCallTool, "MCP: 调用Tool")

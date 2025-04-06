@@ -1,4 +1,4 @@
-from typing import Any, List, Optional, Literal
+from typing import Any, List, Literal, Optional, Union
 
 from pydantic import BaseModel
 
@@ -34,7 +34,7 @@ class Tool(BaseModel):
     type: Optional[Literal["function"]] = "function"
     name: str
     description: str
-    parameters: ToolParameters
+    parameters: Union[ToolParameters, dict]
     strict: Optional[bool] = False
 
 class ResponseFormat(BaseModel):

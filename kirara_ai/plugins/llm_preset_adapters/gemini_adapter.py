@@ -108,7 +108,20 @@ def resolve_function_call(calls: list[LLMChatContentPartType]) -> Optional[list[
 
 def convert_tools_to_gemini_format(tools: list[Tool]) -> list[dict[Literal["function_declarations"], list[dict]]]:
     return [{
-        "function_declarations": [tool.model_dump(exclude={"strict": True, "parameters": {"additionalProperties": True}}) for tool in tools]
+        "function_declarations": [tool.model_dump(include={
+            "name": True, 
+            "description": True, 
+            "parameters": {
+                "type": True,
+                "properties": {
+                    "type": True,
+                    "description": True,
+                    "enum": True
+                },
+            },
+            "required": True
+            
+        }) for tool in tools]
     }]
 
 class GeminiAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
@@ -148,6 +161,8 @@ class GeminiAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
             "safetySettings": SAFETY_SETTINGS,
             "tools": convert_tools_to_gemini_format(req.tools) if req.tools else None,
         }
+        
+        self.logger.debug(f"Gemini request: {data}")
 
         # Remove None fields
         data = {k: v for k, v in data.items() if v is not None}
@@ -160,6 +175,7 @@ class GeminiAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
             self.logger.error(f"API Response: {response.text}")
             raise e
         content: List[LLMChatContentPartType] = []
+        role = "assistant"
         for part in response_data["candidates"][0]["content"]["parts"]:
             if "text" in part:
                 content.append(LLMChatTextContent(text=part["text"]))
@@ -191,7 +207,7 @@ class GeminiAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
             ),
             message=Message(
                 content=content,
-                role="assistant",
+                role=role,
                 finish_reason=response_data["candidates"][0].get("finishReason"),
                 # content格式转好直接用就行
                 tool_calls=resolve_function_call(content)
