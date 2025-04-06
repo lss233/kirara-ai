@@ -218,7 +218,9 @@ class WorkflowExecutor:
                     wire.target_block == block
                     and wire.target_input == input_name
                     and wire.source_block.name in self.results
+                    and wire.source_output in self.results[wire.source_block.name]
                 ):
+                    self.logger.debug(f"Input [{block.name}.{input_name}] satisfied by [{wire.source_block.name}.{wire.source_output}] with value {self.results[wire.source_block.name][wire.source_output]}")
                     input_satisfied = True
                     break
 
@@ -226,8 +228,7 @@ class WorkflowExecutor:
             if not input_satisfied and not block.inputs[input_name].nullable:
                 self.logger.info(f"Input [{block.name}.{input_name}] not satisfied")
                 return False
-
-        # self.logger.debug("All inputs satisfied and predecessors completed")
+        self.logger.debug(f"All inputs satisfied and predecessors completed for block {block.name}")
         return True
 
     def _gather_inputs(self, block: Block) -> Dict[str, Any]:
@@ -245,14 +246,14 @@ class WorkflowExecutor:
         for input_name in block.inputs:
             if input_name in input_wire_map:
                 wire = input_wire_map[input_name]
-                if wire.source_block.name in self.results:
+                if wire.source_block.name in self.results and wire.source_output in self.results[wire.source_block.name]:
                     inputs[input_name] = self.results[wire.source_block.name][
                         wire.source_output
                     ]
                     # self.logger.debug(f"Resolved input {input_name} from {wire.source_block.name}.{wire.source_output}")
                 else:
                     raise BlockExecutionFailedException(
-                        f"Source block {wire.source_block.name} not executed for input {input_name}"
+                        f"Current block {block.name} depends on source block {wire.source_block.name} not executed for input {input_name}"
                     )
             elif not block.inputs[input_name].nullable:
                 raise BlockExecutionFailedException(

@@ -1,18 +1,19 @@
 import re
+from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Annotated, Any, Dict, List, Optional
-from abc import ABC, abstractmethod
 
 from kirara_ai.im.message import ImageMessage, IMMessage, MessageElement, TextMessage
 from kirara_ai.im.sender import ChatSender
 from kirara_ai.ioc.container import DependencyContainer
 from kirara_ai.llm.format import LLMChatMessage, LLMChatTextContent
 from kirara_ai.llm.format.message import LLMChatContentPartType, LLMChatImageContent
-from kirara_ai.llm.format.request import LLMChatRequest
+from kirara_ai.llm.format.request import LLMChatRequest, Tool
 from kirara_ai.llm.format.response import LLMChatResponse
 from kirara_ai.llm.llm_manager import LLMManager
 from kirara_ai.llm.llm_registry import LLMAbility
 from kirara_ai.logger import get_logger
+from kirara_ai.mcp.manager import MCPServerManager
 from kirara_ai.memory.composes.base import ComposableMessageType
 from kirara_ai.workflow.core.block import Block, Input, Output, ParamMeta
 from kirara_ai.workflow.core.execution.executor import WorkflowExecutor
@@ -216,11 +217,11 @@ class FunctionCalling(Block):
     """
     name = "function_calling"
     inputs = {
-        "request_body": Input("request_body", "llm 函数调用请求体", LLMChatRequest, "传递一个规范的函数调用请求体"),
+        "msg": Input("msg", "LLM 函数调用请求体", List[LLMChatMessage], "传递一个规范的函数调用请求体"),
     }
     outputs = {
-        "resp": Output("resp", "llm 回应", LLMChatResponse, "返回的response, llm认为无需调用tool或者根据tool结果返回"),
-        "tool_call": Output("call_tools", "llm 回应", LLMChatResponse, "返回的response带有tool_calls字段，你需要根据此字段进行下一个动作")
+        "resp": Output("resp", "LLM 消息回应", LLMChatResponse, "返回的response, llm认为无需调用tool或者根据tool结果返回"),
+        "tool_call": Output("call_tools", "LLM 工具调用请求", LLMChatResponse, "返回的response带有tool_calls字段，你需要根据此字段进行下一个动作")
     }
     container: DependencyContainer
     
@@ -232,7 +233,7 @@ class FunctionCalling(Block):
         self.model_name = model_name
         self.logger = get_logger("FunctionCallingBlock")
 
-    def execute(self, request_body: LLMChatRequest) -> Dict[str, Any]:
+    def execute(self, msg: List[LLMChatMessage]) -> Dict[str, Any]: # type: ignore
         if not self.model_name:
             raise ValueError("need a model name which support function calling")
         else:
@@ -241,7 +242,20 @@ class FunctionCalling(Block):
         if not llm:
             raise ValueError(f"LLM {self.model_name} not found, please check the model name")
         # 在这里指定llm的model
-        request_body.model = self.model_name
+        request_body = LLMChatRequest(messages=msg, model=self.model_name)
+        mcp_manager = self.container.resolve(MCPServerManager)
+        tools = mcp_manager.get_tools()
+        for tool_name, tool in tools.items():
+            mcp_tool_info = tool.tool_info
+            tool_call = Tool(
+                name=tool_name,
+                description=mcp_tool_info.description or "",
+                parameters=mcp_tool_info.inputSchema,
+            )
+            if request_body.tools is None:
+                request_body.tools = []
+            request_body.tools.append(tool_call)
+
         response: LLMChatResponse = llm.chat(request_body)
         if not response.message.tool_calls:
             self.logger.debug("No tool calls found, return response directly")
