@@ -4,6 +4,7 @@ from typing import List, Optional, cast
 import aiohttp
 import requests
 from pydantic import BaseModel, ConfigDict
+from mcp.types import TextContent, ImageContent, EmbeddedResource
 
 from kirara_ai.llm.adapter import AutoDetectModelsProtocol, LLMBackendAdapter
 from kirara_ai.llm.format.message import (LLMChatContentPartType, LLMChatImageContent, LLMChatMessage,
@@ -29,19 +30,11 @@ async def resolve_media_ids(media_ids: list[str], media_manager: MediaManager) -
     return result
 
 def convert_llm_response(response_data: dict[str, dict]) -> list[LLMChatContentPartType]:
-    # 在官方文档中无法得知tool_call时content是否为空，因此两个都记录下来
-    content: list[LLMChatContentPartType] = [LLMChatTextContent(text=response_data["message"].get("content", ""))]
-    calls = []
-    if response_data["message"].get("tool_calls", None):
-        for tool_call in response_data["message"]["tool_calls"]:
-            calls.append(
-                LLMToolCallContent(
-                    name=tool_call["function"]["name"],
-                    parameters=tool_call["function"].get("arguments", None)
-                )
-            )
-        content.extend(calls)
-    return content
+    # 通过实践证明 llm 调用工具时 content 字段为空字符串没有任何有效信息不进行记录
+    if calls := response_data["message"].get("tool_calls", None):
+        return [LLMToolCallContent(name=call["function"]["name"], parameters=call["function"].get("arguments", None)) for call in calls]
+    else:
+        return [LLMChatTextContent(text=response_data["message"].get("content", ""))]
 
 def convert_non_tool_message(msg: LLMChatMessage, media_manager: MediaManager, loop: asyncio.AbstractEventLoop):
     text_content = ""
@@ -65,7 +58,6 @@ def resolve_tool_calls(response_data: dict[str, dict]) -> Optional[list[ToolCall
         calls: list[ToolCall] = []
         for call in tool_calls:
             calls.append(ToolCall(
-                model = "ollama",
                 function = Function(
                     name = call["function"]["name"], 
                     arguments = call["function"].get("arguments", None),
@@ -78,6 +70,22 @@ def resolve_tool_calls(response_data: dict[str, dict]) -> Optional[list[ToolCall
 def convert_tools_to_ollama_format(tools: list[Tool]) -> list[dict]:
     # 这里将其独立出来方便应对后续接口改动
     return [tool.model_dump(exclude={"strict": True, "parameters": {"additionalProperties": True}}) for tool in tools]
+
+def resolve_tool_results(element: LLMToolResultContent):
+    if element.isError:
+        return {"role": "tool", "content": f"An error occurred when calling the tool: {element.content}"}
+    
+    contents = []
+    for content in element.content:
+        if isinstance(content, TextContent):
+            contents.append(content.text)
+        elif isinstance(content, ImageContent):
+            # 暂未支持
+            continue
+        elif isinstance(content, EmbeddedResource):
+            # 暂未支持
+            continue
+    return {"role": "tool", "content": contents}
 
 class OllamaAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
     def __init__(self, config: OllamaConfig):

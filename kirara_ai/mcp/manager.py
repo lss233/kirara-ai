@@ -29,6 +29,9 @@ class MCPServerManager:
         self.config = container.resolve(GlobalConfig)
         self.servers: Dict[str, MCPServer] = {}
         self.tools_cache: Dict[str, ToolCacheEntry] = {}
+        # 注意下面两个本质是一串索引。具体提示词和资源请调用相应getter方法获取
+        self.prompts_cache: Dict[str, list[types.Prompt]] = {} # types.ListPromptsResult
+        self.resources_cache: Dict[str, list[types.Resource]] = {} # types.ListResourcesResult
             
     def load_servers(self):
         """从配置加载所有MCP服务器"""
@@ -296,3 +299,123 @@ class MCPServerManager:
         except Exception as e:
             logger.opt(exception=e).error(f"Error occurred when calling tool {tool_name}")
             return None
+        
+    async def _update_prompts_cache(self, server_id: str) -> bool:
+        """
+        更新指定server的prompts 索引缓存
+        # notification ! 
+        这个函数存的缓存是一个prompts的索引，请调用get_prompts获取具体的prompts信息
+
+        Args:
+            server_id: 服务器ID
+
+        Returns:
+            bool: 更新是否成功
+        """
+        server = self.servers.get(server_id)
+        if not server or server.state != MCPConnectionState.CONNECTED:
+            return False
+        
+        try:
+            # 获取服务器prompts 索引
+            prompts = await server.list_prompts()
+
+            # 移除旧缓存
+            self._remove_prompts_from_cache(server_id)
+            # 添加新索引到缓存
+            self.prompts_cache[server_id] = prompts
+            return True
+        except Exception as e:
+            logger.opt(exception=e).error(f"更新服务器 {server_id} prompts 索引缓存时发生错误")
+            return False
+
+    def _remove_prompts_from_cache(self, server_id: str):
+        """
+        从prompts 索引缓存中移除指定服务器的所有prompts 索引"
+        Args:
+            server_id: 服务器ID
+        """
+        self.prompts_cache.pop(server_id, None)
+
+    async def get_prompts(self, server_id: str) -> Optional[list[types.GetPromptResult]]:
+        """
+        获取指定服务器的prompts
+
+        Args:
+            server_id: 服务器ID
+        Returns:
+            types.GetPromptResult: prompts
+        """
+
+        server = self.servers.get(server_id)
+        if not server or server.state != MCPConnectionState.CONNECTED:
+            return None
+        
+        configs = self.prompts_cache.get(server_id, None)
+        if configs is None:
+            # 缓存中没有索引，更新缓存
+            await self._update_prompts_cache(server_id)
+        
+        return asyncio.gather(*[server.get_prompt(config.name, config.arguments) for config in configs])
+    
+    async def _update_resources_cache(self, server_id: str) -> bool:
+        """
+        更新指定server的resources 缓存
+        # notification ! 
+        这个函数存的缓存是一个resources的索引，请调用get_resources获取具体的resources信息
+
+        Args:
+            server_id: 服务器ID
+
+        Returns:
+            bool: 更新是否成功
+        """
+        server = self.servers.get(server_id)
+        if not server or server.state != MCPConnectionState.CONNECTED:
+            return False
+        
+        try:
+            # 获取服务器resources 索引
+            resources = await server.list_resources()
+
+            # 移除旧缓存
+            self._remove_resources_from_cache(server_id)
+
+            # 存储新索引到缓存
+            self.resources_cache[server_id] = resources
+            return True
+        except Exception as e:
+            logger.opt(exception=e).error(f"更新服务器 {server_id} resources 缓存时发生错误")
+            return False
+        
+    def _remove_resources_from_cache(self, server_id: str):
+        """
+        从resources 缓存中移除指定服务器的所有resources 索引"
+        Args:
+            server_id: 服务器ID
+        """
+        self.resources_cache.pop(server_id, None)
+
+    async def get_resources(self, server_id: str) -> Optional[list[types.ReadResourceResult]]:
+        """
+        获取指定服务器的resources
+
+        Args:
+            server_id: 服务器ID
+        Returns:
+            types.ReadResourceResult: resource
+        """
+
+        # 这个函数没完成，应该在此出处理接收到的resource数据，然后返回给调用者
+        # 或者商议在后续接口处理。不过一般都是转为base64。
+
+        server = self.servers.get(server_id)
+        if not server or server.state != MCPConnectionState.CONNECTED:
+            return None
+        
+        configs = self.resources_cache.get(server_id, None)
+        if configs is None:
+            # 缓存中没有索引，更新缓存
+            await self._update_resources_cache(server_id)
+
+        return asyncio.gather(*[server.read_resource(config.uri) for config in configs])

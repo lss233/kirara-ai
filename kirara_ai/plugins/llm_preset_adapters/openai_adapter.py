@@ -1,9 +1,11 @@
 import asyncio
+import json
 from typing import Optional, cast
 
 import aiohttp
 import requests
 from pydantic import BaseModel, ConfigDict
+from mcp.types import TextContent, ImageContent, EmbeddedResource
 
 from kirara_ai.llm.adapter import AutoDetectModelsProtocol, LLMBackendAdapter
 from kirara_ai.llm.format.message import (LLMChatContentPartType, LLMChatImageContent, LLMChatMessage,
@@ -21,7 +23,7 @@ async def convert_parts_factory(messages: LLMChatMessage, media_manager: MediaMa
         # typing.cast 指定类型，避免mypy报错
         results = cast(list[LLMToolResultContent], messages.content)
         # 保证 content 为一个字符串
-        return [{"role": "tool", "tool_call_id": result.id, "content": str(result.content)} for result in results]
+        return [{"role": "tool", "tool_call_id": result.id, "content": resolve_tool_results(result)} for result in results]
     else:
         parts = []
         elements = cast(list[LLMChatContentPartType], messages.content)
@@ -64,7 +66,25 @@ def resolve_tool_calls_from_response(tool_calls: Optional[list[dict]]):
                 arguments=call["function"].get("arguments", None)
             )
         ) for call in tool_calls]
-
+    
+def resolve_tool_results(element: LLMToolResultContent) -> str:
+    # 虽然这里只转化了text类型，但是为了后续拓展性还是单独作为一个函数
+    if element.isError:
+        return f"An error occurred when calling the tool: {element.content}"
+    
+    contents: list[dict] = []
+    for content in element.content:
+        if isinstance(element.content, TextContent):
+            contents.append(content.text)
+        elif isinstance(element.content, ImageContent):
+            logger.warning("Image is not supported in openai tool results")
+            continue
+        elif isinstance(element.content, EmbeddedResource):
+            logger.warning("Embedded resource is not supported in openai tool results")
+            continue
+    
+    return json.dumps(contents)
+    
 class OpenAIConfig(BaseModel):
     api_key: str
     api_base: str = "https://api.openai.com/v1"

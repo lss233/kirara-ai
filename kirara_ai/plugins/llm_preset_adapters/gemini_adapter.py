@@ -1,10 +1,12 @@
 import asyncio
 import base64
+import json
 from typing import Any, Dict, List, Literal, Optional, cast
 
 import aiohttp
 import requests
 from pydantic import BaseModel, ConfigDict
+from mcp.types import TextContent, ImageContent, EmbeddedResource
 
 from kirara_ai.llm.adapter import AutoDetectModelsProtocol, LLMBackendAdapter
 from kirara_ai.llm.format.message import (LLMChatContentPartType, LLMChatImageContent, LLMChatMessage,
@@ -78,26 +80,15 @@ async def convert_llm_chat_message_to_gemini_message(msg: LLMChatMessage, media_
     if msg.role in ["user", "assistant", "system"]:
         return await convert_non_tool_message(msg, media_manager)
     elif msg.role == "tool":
-        elements = cast(list[LLMToolResultContent], msg.content)
-        # tool_result 的 role 必定为 "tool"。同时 "tool" 角色 messages 中只能是 LLMToolResultContent
-        parts = [{
-            "functionResponse": {
-                "name": element.name,
-                "response": {
-                    "name": element.name,
-                    "content": element.content
-                }
-            }
-        } for element in elements]
+        results = cast(list[LLMToolResultContent], msg.content)
         # 此处按照 API 文档，不指定 role    
-        return {"parts": parts}
+        return {"parts": [resolve_tool_results(result) for result in results]}
     else:
         raise ValueError(f"Invalid role: {msg.role}")
 
 def resolve_function_call(calls: list[LLMChatContentPartType]) -> Optional[list[ToolCall]]:
     tool_calls = [
         ToolCall(
-            model="gemini",
             function=Function(name=call.name, arguments=call.parameters)
         ) for call in calls if isinstance(call, LLMToolCallContent)
     ]
@@ -109,6 +100,7 @@ def resolve_function_call(calls: list[LLMChatContentPartType]) -> Optional[list[
 def convert_tools_to_gemini_format(tools: list[Tool]) -> list[dict[Literal["function_declarations"], list[dict]]]:
     return [{
         "function_declarations": [tool.model_dump(include={
+            # 所以这里为何要使用include? 排除应该更少吧
             "name": True, 
             "description": True, 
             "parameters": {
@@ -123,6 +115,38 @@ def convert_tools_to_gemini_format(tools: list[Tool]) -> list[dict[Literal["func
             
         }) for tool in tools]
     }]
+
+def resolve_tool_results(element: LLMToolResultContent) -> dict[Literal["FunctionResponse"], dict]:
+    if element.isError:
+        return {
+            "FunctionResponse": {
+                "name": element.name, 
+                "response": {
+                    "name": element.name, 
+                    "content": f"An error occurred when calling tool {element.content}."
+                }
+            }
+        }
+    
+    contents = []
+    for content in element.content:
+        if isinstance(content, TextContent):
+            contents.append(content.text)
+        # 暂且未在 api 中找到关于下列两种格式的说明，先不处理
+        elif isinstance(content, ImageContent):
+            continue
+        elif isinstance(content, EmbeddedResource):
+            continue
+    return {
+        "FunctionResponse": {
+            "name": element.name,
+            "response": {
+                "name": element.name,
+                # content 是具体信息段，其格式与 tool 返回结果相关，llm没有特殊要求，不做转换。
+                "content": contents
+            }
+        }
+    }
 
 class GeminiAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
 
