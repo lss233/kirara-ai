@@ -4,7 +4,10 @@ from typing import Any, Literal, Optional, Union
 from pydantic import BaseModel, field_validator, model_validator
 from typing_extensions import Self
 
+from mcp.types import EmbeddedResource, ImageContent, TextContent
+
 RoleType = Literal["system", "user", "assistant"]
+ResultTypes = Union[TextContent, ImageContent, EmbeddedResource]
 
 class LLMChatTextContent(BaseModel):
     type: Literal["text"] = "text"
@@ -21,10 +24,8 @@ class LLMToolCallContent(BaseModel):
     此部分 role 应该归属于"assistant"
     """
     type: Literal["tool_call"] = "tool_call"
-    # 有些model不会返回 call_id ，点名 gemini
     id: Optional[str] = None
     name: str
-    # tool可能没有参数。
     parameters: Optional[dict] = None
 
     @classmethod
@@ -41,11 +42,17 @@ class LLMToolResultContent(BaseModel):
     此部分 role 应该对应 "tool"
     """
     type: Literal["tool_result"] = "tool_result"
-    # 为与 gemini 兼容，此处 id 改为 Optional. 因为 gemini 回应中没有 call_id.
     id: Optional[str] = None
     name: str
-    # 各家工具要求返回的content格式不同. 等待后续规范化。
-    content: Any
+    # 统一传递mcp.types.CallToolResult交由adapter自行处理, str是仅发生错误时才允许的类型
+    content: Union[list[ResultTypes],str]
+    isError: bool = False
+
+    @model_validator(mode="after")
+    def check_content_type(self) -> Self:
+        if self.isError and not isinstance(self.content, str):
+            raise ValueError("content must be a str, when isError is True")
+        return self
 
 LLMChatContentPartType = Union[LLMChatTextContent, LLMChatImageContent, LLMToolCallContent, LLMToolResultContent]
 RoleTypes = Literal["user", "assistant", "system", "tool"]

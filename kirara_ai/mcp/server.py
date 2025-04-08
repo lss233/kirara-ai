@@ -1,14 +1,18 @@
 import asyncio
+import anyio
 from contextlib import AsyncExitStack
 from typing import Optional
 
+import anyio.lowlevel
 from mcp import ClientSession, StdioServerParameters, stdio_client, types
 from mcp.client.sse import sse_client
+from mcp.shared.session import RequestResponder
 from pydantic import AnyUrl
 
 from kirara_ai.config.global_config import MCPServerConfig
 from kirara_ai.logger import get_logger
 from kirara_ai.mcp.models import MCPConnectionState
+from .manager import MCPServerManager
 
 logger = get_logger("MCP.Server")
 
@@ -24,8 +28,8 @@ class MCPServer:
     """
     session: Optional[ClientSession] = None
     state: MCPConnectionState = MCPConnectionState.DISCONNECTED
-    
-    def __init__(self, server_config: MCPServerConfig):
+    manager: MCPServerManager
+    def __init__(self, server_config: MCPServerConfig, manager: MCPServerManager):
         """
         初始化 MCP 服务器客户端
         
@@ -38,8 +42,9 @@ class MCPServer:
         self._lifecycle_task = None
         self._shutdown_event = asyncio.Event()
         self._connected_event = asyncio.Event()
+        self.manager = manager
         self._client = None
-        
+
     async def connect(self):
         """
         连接到 MCP 服务器
@@ -128,7 +133,8 @@ class MCPServer:
             if self.server_config.connection_type == "stdio":
                 self._client = stdio_client(StdioServerParameters(
                     command=self.server_config.command, 
-                    args=self.server_config.args
+                    args=self.server_config.args,
+                    env=self.server_config.env
                 ))
             elif self.server_config.connection_type == "sse":
                 self._client = sse_client(self.server_config.url)
@@ -137,7 +143,7 @@ class MCPServer:
             
             # 使用 exit_stack 管理资源
             read, write = await exit_stack.enter_async_context(self._client)
-            self.session = await exit_stack.enter_async_context(ClientSession(read, write))
+            self.session = await exit_stack.enter_async_context(ClientSession(read, write, message_handler=self.message_handler_callback))
             
             # 初始化会话
             await self.session.initialize()
@@ -273,3 +279,77 @@ class MCPServer:
         assert self.session is not None
         return await self.session.unsubscribe_resource(AnyUrl(resource_name))
     
+    async def message_handler_callback(
+            self,
+            req: RequestResponder[types.ServerRequest, types.ClientResult]
+            | types.ServerNotification
+            | Exception,
+        ) -> None:
+        """
+        按照sdk写法添加了针对Server通知的处理
+        虽然ClientSession中有只处理SeverNotification的函数，但是sdk没有暴露接收这个函数的参数。
+        所以只能用这个更大范围的。除非你重写ClientSession._received_notification函数。
+        或者能水个pr?
+
+        Args:
+            req: 请求响应器或通知或异常
+        """
+        # ServerNotification是一个联合类型，自己查看有哪些
+        if isinstance(req, types.ToolListChangedNotification):
+            # 处理工具变更信息
+            self.manager._update_tools_cache(self.server_config.id)
+        elif isinstance(req, types.PromptListChangedNotification):
+            # 处理提示词变更信息
+            self.manager._update_prompts_cache(self.server_config.id)
+        elif isinstance(req, types.ResourceListChangedNotification):
+            # 处理资源变更信息
+            self.manager._update_resources_cache(self.server_config.id)
+        else:
+            # 处理其他通知
+            logger.warning(f"MCP客户端接收到服务器{self.server_config.id}的通知，但未对其进行处理: {req}")
+
+        # 交还控制权给loop
+        anyio.lowlevel.checkpoint()
+
+    async def list_client_roots_callback(ctx) -> types.ListRootsResult:
+        """
+        列出客户端允许的资源根目录
+
+        Args:
+
+        Returns:
+            types.ListRootsResult: 资源根目录列表
+        """
+        # 这个需要kirara-agent做出较大支持，webApi 中设定允许的资源根，最好弄个单独的目录。
+        # 文件根格式为file:///myResource/, 也可以为一个url.
+        pass
+
+    async def send_ping(self) -> None:
+        await self.session.send_ping()
+
+    async def send_notification(self, notification: types.ClientNotification) -> None:
+        """
+        给服务器发消息，例如资源根更改
+        不使用ClientSession的send_roots_list_changed，因为它只支持发送RootsListChangedNotification。
+        这里使用其父对象BaseSession的send_notification, 其支持发送所有ClientNotification。
+        ps: 这难道不是双工吗？
+
+        Args:
+            notification: 客户端通知
+        """
+        assert self.session is not None
+        await self.session.send_notification(notification)
+
+    async def sampling_callback():
+        """
+        采样回调函数
+        写这只是为了提醒你支持这个回调函数，现在不实现。等出现未知bug就应该使用这个了。相当于mcp debug？
+        """
+        pass
+    async def logging_callback():
+        """
+        日志回调函数
+        写这只是为了提醒你支持这个回调函数，现在不实现。
+        ps: 居然支持自定义日志
+        """
+        pass

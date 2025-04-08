@@ -5,6 +5,7 @@ from typing import List, Optional
 import aiohttp
 import requests
 from pydantic import BaseModel, ConfigDict
+from mcp.types import TextContent, ImageContent, EmbeddedResource, TextResourceContents, BlobResourceContents
 
 from kirara_ai.llm.adapter import AutoDetectModelsProtocol, LLMBackendAdapter
 from kirara_ai.llm.format.message import (LLMChatContentPartType, LLMChatImageContent, LLMChatMessage,
@@ -30,9 +31,8 @@ async def convert_llm_chat_message_to_claude_message(messages: list[LLMChatMessa
             if isinstance(part, LLMChatTextContent):
                 parts.append({"type": "text", "text": part.text})
             elif isinstance(part, LLMToolResultContent):
-                parts.append({"type": "tool_result", "tool_use_id": part.id, "content": part.content})
+                parts.append(resolve_tool_result(part))
             elif isinstance(part, LLMToolCallContent):
-                # claude不需要tool_call内容
                 continue
             elif isinstance(part, LLMChatImageContent):
                 media = media_manager.get_media(part.media_id)
@@ -51,7 +51,6 @@ def resolve_tool_calls(content: list[dict]) -> Optional[list[ToolCall]]:
         if part.get("type") == "tool_use":
             tool_calls.append(
                     ToolCall(
-                        model="claude",
                         id=part.get("id"),
                         type=part.get("type"),
                         function=Function(
@@ -70,6 +69,31 @@ def convert_tools_to_claude_format(tools: list[Tool]) -> list[dict]:
     # 使用 pydantic 的 model_dump 方法，高级排除项`exclude`排除 openai 专属项
     return [tool.model_dump(exclude={"strict": True, 'parameters': {'additionalProperties': True}}) for tool in tools]
 
+def resolve_tool_result(element: LLMToolResultContent) -> dict:
+    # 按照 claude api 规则处理工具返回结果
+    result =  {"type": "tool_result", "tool_use_id": element.id}
+
+    if element.isError:
+        result["content"] = element.content
+        result["is_error"] = True
+        return result
+    
+    contents: list[dict] = []
+    for content in element.content:
+        if isinstance(content, TextContent):
+            contents.append({"type": "text", "text": content.text})
+        elif isinstance(content, ImageContent):
+            contents.append({"type": "image", "source": {"type": "base64", "media_type": content.mimeType, "data": content.data}})
+        elif isinstance(content, EmbeddedResource):
+            # 以下为推测内容， api没有说明
+            if isinstance(content.resource, TextResourceContents):
+                contents.append({"type": "embedded_resource", "source": {"type": "text", "data": content.resource.text}})
+            elif isinstance(content.resource, BlobResourceContents):
+                contents.append({"type": "embedded_resource", "source": {"type": "binary_large_object", "data": content.resource.blob}})
+
+    result["content"] = contents
+    return result
+    
 class ClaudeAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
 
     media_manager: MediaManager

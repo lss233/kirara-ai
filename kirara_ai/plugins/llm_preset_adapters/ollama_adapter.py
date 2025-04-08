@@ -4,6 +4,7 @@ from typing import List, Optional, cast
 import aiohttp
 import requests
 from pydantic import BaseModel, ConfigDict
+from mcp.types import TextContent, ImageContent, EmbeddedResource
 
 from kirara_ai.llm.adapter import AutoDetectModelsProtocol, LLMBackendAdapter
 from kirara_ai.llm.format.message import (LLMChatContentPartType, LLMChatImageContent, LLMChatMessage,
@@ -57,7 +58,6 @@ def resolve_tool_calls(response_data: dict[str, dict]) -> Optional[list[ToolCall
         calls: list[ToolCall] = []
         for call in tool_calls:
             calls.append(ToolCall(
-                model = "ollama",
                 function = Function(
                     name = call["function"]["name"], 
                     arguments = call["function"].get("arguments", None),
@@ -70,6 +70,22 @@ def resolve_tool_calls(response_data: dict[str, dict]) -> Optional[list[ToolCall
 def convert_tools_to_ollama_format(tools: list[Tool]) -> list[dict]:
     # 这里将其独立出来方便应对后续接口改动
     return [tool.model_dump(exclude={"strict": True, "parameters": {"additionalProperties": True}}) for tool in tools]
+
+def resolve_tool_results(element: LLMToolResultContent):
+    if element.isError:
+        return {"role": "tool", "content": f"An error occurred when calling the tool: {element.content}"}
+    
+    contents = []
+    for content in element.content:
+        if isinstance(content, TextContent):
+            contents.append(content.text)
+        elif isinstance(content, ImageContent):
+            # 暂未支持
+            continue
+        elif isinstance(content, EmbeddedResource):
+            # 暂未支持
+            continue
+    return {"role": "tool", "content": contents}
 
 class OllamaAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
     def __init__(self, config: OllamaConfig):

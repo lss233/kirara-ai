@@ -1,7 +1,5 @@
 import asyncio
-from typing import Any, Dict, List, Optional
-
-from mcp import types
+from typing import Any, Dict, List
 
 from kirara_ai.ioc.container import DependencyContainer
 from kirara_ai.llm.format.message import LLMChatMessage, LLMChatTextContent, LLMToolResultContent
@@ -58,6 +56,7 @@ class MCPCallTool(Block):
         
         # 处理所有工具调用
         tool_results: List[LLMToolResultContent] = []
+        # 是否考虑同时发配 call_tool任务？
         for tool_call_info in tool_call.message.tool_calls:
             try:
                 assert tool_call_info.function is not None
@@ -75,8 +74,10 @@ class MCPCallTool(Block):
                 if not server_info:
                     error_msg = f"找不到工具: {tool_name}"
                     self.logger.error(error_msg)
-                    tool_results.extend(self._create_tool_result(tool_id, tool_name, {"error": error_msg}))
-                    continue
+                    # tool_results.extend(self._create_tool_result(tool_id, tool_name, {"error": error_msg}))
+                    tool_results.append(LLMToolResultContent(id=tool_id, name=tool_name, content=error_msg, isError=True))
+                    # 这里确定不应该抛出一个异常吗？
+                    raise KeyError("no server be found")
                 
                 server, original_name = server_info
                 
@@ -85,15 +86,17 @@ class MCPCallTool(Block):
                 result = result_future.result()
                 
                 # 创建工具结果
-                tool_results.extend(self._create_tool_result(tool_id, tool_name, result.content))
+                # tool_results.extend(self._create_tool_result(tool_id, tool_name, result.content))
+                tool_results.append(id=tool_id, name=tool_name, content=result.content)
                 self.logger.info(f"工具调用结果: {tool_results[-1]}")
             except Exception as e:
                 self.logger.opt(exception=e).error(f"调用工具时发生错误")
-                error_msg = f"调用工具时发生错误: {str(e)}"
-                tool_results.extend(self._create_tool_result(
+                error_msg = str(e)
+                tool_results.append(LLMToolResultContent(
                     tool_id if 'tool_id' in locals() else None, 
                     tool_name if 'tool_name' in locals() else "unknown", 
-                    {"error": error_msg}
+                    error_msg,
+                    True
                 ))
         
         # 创建工具结果消息
@@ -104,41 +107,10 @@ class MCPCallTool(Block):
     
         
         return {
-            "updated_request": raw_input + [tool_result_message]
+            # "updated_request": raw_input + [tool_result_message]
+            "updated_request": raw_input.append(tool_result_message)
         }
     
-    def _create_tool_result(self, tool_id: Optional[str], tool_name: str, content: list[types.TextContent | types.ImageContent | types.EmbeddedResource]) -> list[LLMToolResultContent]:
-        """创建工具调用结果"""
-        result_content = []
-        
-        for item in content:
-            if isinstance(item, types.TextContent):
-                result_content.append(LLMToolResultContent(
-                    id=tool_id,
-                    name=tool_name,
-                    content=item.text
-                ))
-            elif isinstance(item, types.ImageContent):
-                result_content.append(LLMToolResultContent(
-                    id=tool_id,
-                    name=tool_name,
-                    content=item.image_url
-                ))
-            elif isinstance(item, types.EmbeddedResource):
-                result_content.append(LLMToolResultContent(
-                    id=tool_id,
-                    name=tool_name,
-                    content=item.resource_url
-                ))
-            else:
-                result_content.append(LLMToolResultContent(
-                    id=tool_id,
-                    name=tool_name,
-                    content=str(item)
-                ))
-        
-        return result_content
-
     def _create_error_response(self, error_message: str) -> Dict[str, Any]:
         """创建错误响应"""
         error_text = LLMChatTextContent(text=error_message)
