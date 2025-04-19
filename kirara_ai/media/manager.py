@@ -254,7 +254,8 @@ class MediaManager:
         source: Optional[str] = None,
         description: Optional[str] = None,
         tags: Optional[List[str]] = None,
-        reference_id: Optional[str] = None
+        reference_id: Optional[str] = None,
+        media_type: Optional[MediaType] = None
     ) -> str:
         """从二进制数据注册媒体"""
         return await self.register_media(
@@ -263,7 +264,8 @@ class MediaManager:
             source=source,
             description=description,
             tags=tags,
-            reference_id=reference_id
+            reference_id=reference_id,
+            media_type=media_type
         )
     
     def add_reference(self, media_id: str, reference_id: str) -> None:

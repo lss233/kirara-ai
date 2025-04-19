@@ -1,8 +1,10 @@
 import json
-from typing import Any, Literal, Optional, Union
+from typing import Literal, Optional, Union
 
 from pydantic import BaseModel, field_validator, model_validator
 from typing_extensions import Self
+
+from .tool import LLMToolResultContent
 
 RoleType = Literal["system", "user", "assistant"]
 
@@ -21,7 +23,7 @@ class LLMToolCallContent(BaseModel):
     此部分 role 应该归属于"assistant"
     """
     type: Literal["tool_call"] = "tool_call"
-    # 有些model不会返回 call_id ，点名 gemini
+    # call id，部分模型用此字段区分不同函数的调用
     id: Optional[str] = None
     name: str
     # tool可能没有参数。
@@ -33,19 +35,6 @@ class LLMToolCallContent(BaseModel):
         if isinstance(v, str):
             return json.loads(v)
         return v
-
-class LLMToolResultContent(BaseModel):
-    """
-    这是工具回应的消息内容,
-    模型强相关内容，如果你 message 或者 memory 内包含了这个内容，请保证调用同一个 model
-    此部分 role 应该对应 "tool"
-    """
-    type: Literal["tool_result"] = "tool_result"
-    # 为与 gemini 兼容，此处 id 改为 Optional. 因为 gemini 回应中没有 call_id.
-    id: Optional[str] = None
-    name: str
-    # 各家工具要求返回的content格式不同. 等待后续规范化。
-    content: Any
 
 LLMChatContentPartType = Union[LLMChatTextContent, LLMChatImageContent, LLMToolCallContent, LLMToolResultContent]
 RoleTypes = Literal["user", "assistant", "system", "tool"]

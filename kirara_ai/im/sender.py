@@ -79,7 +79,6 @@ class ChatSender:
         
     def __eq__(self, other: Any) -> bool:
         if isinstance(other, ChatSender):
-            print(self.user_id, other.user_id)
             return self.user_id == other.user_id and \
                 self.chat_type == other.chat_type and \
                 self.group_id == other.group_id

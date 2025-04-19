@@ -1,45 +1,13 @@
-from typing import Any, List, Literal, Optional, Union
+from typing import Any, List, Optional
 
 from pydantic import BaseModel
 
 from kirara_ai.llm.format.message import LLMChatMessage
+from kirara_ai.llm.format.tool import Tool
 
-
-class ToolParameters(BaseModel):
-    """
-    规范化工具参数的格式
-
-    Attributes:
-        type (Literal["object"]): 参数的类型
-        properties (dict): 工具属性，参考 openai api 的规范
-        required (list[str]): 必填参数的名称列表
-        additionalProperties (Optional[bool]): 是否允许额外的键值对
-    """
-    type: Literal["object"] = "object"
-    properties: dict
-    required: list[str]
-    additionalProperties: Optional[bool] = False
-
-class Tool(BaseModel):
-    """
-    这是传递给 llm 的工具信息
-
-    Attributes:
-        type (Optional[Literal["function"]]): 工具的类型
-        name (str): 工具的名称
-        description (str): 工具的描述
-        parameters (ToolParameters): 工具的参数
-        strict (Optional[bool]): 是否严格调用, openai api专属
-    """
-    type: Optional[Literal["function"]] = "function"
-    name: str
-    description: str
-    parameters: Union[ToolParameters, dict]
-    strict: Optional[bool] = False
 
 class ResponseFormat(BaseModel):
     type: Optional[str] = None
-
 
 class LLMChatRequest(BaseModel):
     """

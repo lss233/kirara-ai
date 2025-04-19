@@ -28,12 +28,12 @@ class Media:
         self.metadata = metadata
     
     @property
-    def media_type(self) -> Optional[MediaType]:
+    def media_type(self) -> MediaType:
         """获取媒体类型"""
         return self.metadata.media_type
     
     @property
-    def format(self) -> Optional[str]:
+    def format(self) -> str:
         """获取媒体格式"""
         return self.metadata.format
     
@@ -59,7 +59,7 @@ class Media:
         return metadata.tags if metadata else []
     
     @property
-    def mime_type(self) -> Optional[str]:
+    def mime_type(self) -> str:
         """获取媒体 MIME 类型"""
         return self.metadata.mime_type
     

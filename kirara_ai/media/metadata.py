@@ -10,8 +10,8 @@ class MediaMetadata:
     def __init__(
         self,
         media_id: str,
-        media_type: Optional[MediaType] = None,
-        format: Optional[str] = None,
+        media_type: MediaType,
+        format: str,
         size: Optional[int] = None,
         created_at: Optional[datetime] = None,
         source: Optional[str] = None,
@@ -60,10 +60,8 @@ class MediaMetadata:
 
 
     @property
-    def mime_type(self) -> Optional[str]:
+    def mime_type(self) -> str:
         """获取 MIME 类型"""
-        if self.media_type is None or self.format is None:
-            return None
         return f"{self.media_type.value}/{self.format}"
     
     @classmethod
@@ -71,8 +69,8 @@ class MediaMetadata:
         """从字典创建元数据"""
         return cls(
             media_id=data["media_id"],
-            media_type=MediaType(data["media_type"]) if "media_type" in data else None,
-            format=data.get("format"),
+            media_type=MediaType(data["media_type"]),
+            format=data["format"],
             size=data.get("size"),
             created_at=datetime.fromisoformat(data["created_at"]),
             source=data.get("source"),
