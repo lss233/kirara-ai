@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import Protocol, runtime_checkable
 
-from kirara_ai.llm.format.request import LLMChatRequest
-from kirara_ai.llm.format.response import LLMChatResponse
+from kirara_ai.llm.format.request import LLMChatRequest, LLMEmbeddingRequest
+from kirara_ai.llm.format.response import LLMChatResponse, LLMEmbeddingResponse
 from kirara_ai.media.manager import MediaManager
 from kirara_ai.tracing.llm_tracer import LLMTracer
 
@@ -19,4 +19,8 @@ class LLMBackendAdapter(ABC):
     
     @abstractmethod
     def chat(self, req: LLMChatRequest) -> LLMChatResponse:
+        raise NotImplementedError("Unsupported model method")
+
+    @abstractmethod
+    def embed(self, req: LLMEmbeddingRequest) -> LLMEmbeddingResponse:
         raise NotImplementedError("Unsupported model method")

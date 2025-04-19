@@ -9,8 +9,8 @@ from pydantic import BaseModel, ConfigDict
 from kirara_ai.llm.adapter import AutoDetectModelsProtocol, LLMBackendAdapter
 from kirara_ai.llm.format.message import (LLMChatContentPartType, LLMChatImageContent, LLMChatMessage,
                                           LLMChatTextContent, LLMToolCallContent, LLMToolResultContent)
-from kirara_ai.llm.format.request import LLMChatRequest, Tool
-from kirara_ai.llm.format.response import Function, LLMChatResponse, Message, ToolCall, Usage
+from kirara_ai.llm.format.request import LLMChatRequest, LLMEmbeddingRequest, Tool
+from kirara_ai.llm.format.response import LLMChatResponse, LLMEmbeddingResponse, Message, ToolCall, Function, Usage
 from kirara_ai.logger import get_logger
 from kirara_ai.media import MediaManager
 from kirara_ai.tracing import trace_llm_chat
@@ -196,6 +196,44 @@ class GeminiAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
                 # content格式转好直接用就行
                 tool_calls=resolve_function_call(content)
             ),
+        )
+    
+    def embed(self, req: LLMEmbeddingRequest) -> LLMEmbeddingResponse:
+        # 使用批量嵌入接口，单次嵌入接口:embedContent
+        api_url = f"{self.config.api_base}/models/{req.model}:batchEmbedContents"
+        headers = {
+            "x-goog-api-key": self.config.api_key,
+            "Content-Type": "application/json",
+        }
+        if not all(isinstance(input, LLMChatTextContent) for input in req.inputs):
+            raise ValueError("gemini does not support multi-modal embedding")
+        inputs = cast(list[LLMChatTextContent], req.inputs)
+        data = [ 
+            {
+                "model": req.model,
+                "content": {
+                    "parts": [{"text": input.text}]
+                },
+                "outputDimensionality": req.dimension
+            } for input in inputs
+        ]
+        # 移除None字段
+        data = [{ k:v for k,v in item.items() if v is not None} for item in data]
+        response = self._post_with_retry(url=api_url,json={"requests": data}, headers=headers)
+        try:
+            # {
+            #     "embeddings": [
+            #         {"values": [0.1, ...]},
+            #         ...
+            #     ]
+            # }
+            response_data: dict[Literal["embeddings"],list[dict[Literal["values"], list[float]]]] = response.json()
+        except Exception as e:
+            self.logger.error(f"API Response: {response.text}")
+            raise e
+        return LLMEmbeddingResponse(
+            # gemini不返回usage
+            vectors=[data["values"] for data in response_data["embeddings"]]
         )
 
     async def auto_detect_models(self) -> list[str]:

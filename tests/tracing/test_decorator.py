@@ -1,8 +1,8 @@
 
 from kirara_ai.llm.adapter import LLMBackendAdapter
 from kirara_ai.llm.format.message import LLMChatTextContent
-from kirara_ai.llm.format.request import LLMChatRequest
-from kirara_ai.llm.format.response import LLMChatResponse, Message
+from kirara_ai.llm.format.request import LLMChatRequest, LLMEmbeddingRequest
+from kirara_ai.llm.format.response import LLMChatResponse, Message, LLMEmbeddingResponse
 from kirara_ai.tracing import LLMTracer
 from kirara_ai.tracing.decorator import trace_llm_chat
 from tests.tracing.test_base import TracingTestBase
@@ -21,7 +21,10 @@ class TestLLMAdapter(LLMBackendAdapter):
             model="test-model",
             message=Message(role="assistant", content=[LLMChatTextContent(text="test response")]),
         )
-
+    
+    def embed(self, req: LLMEmbeddingRequest) -> LLMEmbeddingResponse:
+        # 等待后续添加embed跟踪逻辑
+        pass
 
 class TestTraceDecorator(TracingTestBase):
     """追踪装饰器测试"""

@@ -10,11 +10,12 @@ from llm_preset_adapters.openrouter_adapter import OpenRouterAdapter, OpenRouter
 from llm_preset_adapters.siliconflow_adapter import SiliconFlowAdapter, SiliconFlowConfig
 from llm_preset_adapters.tencentcloud_adapter import TencentCloudAdapter, TencentCloudConfig
 from llm_preset_adapters.volcengine_adapter import VolcengineAdapter, VolcengineConfig
+from llm_preset_adapters.mistral_adapter import MistralAdapter, MistralConfig
+from .voyage_adapter import VoyageAdapter, VoyageConfig
 
 from kirara_ai.llm.llm_registry import LLMAbility
 from kirara_ai.logger import get_logger
 from kirara_ai.plugin_manager.plugin import Plugin
-from kirara_ai.plugins.llm_preset_adapters.mistral_adapter import MistralAdapter, MistralConfig
 
 logger = get_logger("LLMPresetAdapters")
 

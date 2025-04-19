@@ -157,6 +157,10 @@ class ClaudeAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
             )
         )
 
+    def embed(self, req):
+        # 你知道的抽象方法必须重写不然报错。
+        raise NotImplementedError("claude adapter does not support embedding, maybe you can try voyage api?")
+
     async def auto_detect_models(self) -> list[str]:
         # {
         #   "data": [

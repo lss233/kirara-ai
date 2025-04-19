@@ -8,3 +8,6 @@ class DeepSeekConfig(OpenAIConfig):
 class DeepSeekAdapter(OpenAIAdapter):
     def __init__(self, config: DeepSeekConfig):
         super().__init__(config)
+
+    def embed(self, req):
+        raise NotImplementedError("DeepSeek does not support embedding")

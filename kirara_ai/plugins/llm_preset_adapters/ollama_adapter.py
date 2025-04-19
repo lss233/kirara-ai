@@ -8,8 +8,8 @@ from pydantic import BaseModel, ConfigDict
 from kirara_ai.llm.adapter import AutoDetectModelsProtocol, LLMBackendAdapter
 from kirara_ai.llm.format.message import (LLMChatContentPartType, LLMChatImageContent, LLMChatMessage,
                                           LLMChatTextContent, LLMToolCallContent, LLMToolResultContent)
-from kirara_ai.llm.format.request import LLMChatRequest, Tool
-from kirara_ai.llm.format.response import Function, LLMChatResponse, Message, ToolCall, Usage
+from kirara_ai.llm.format.request import LLMChatRequest, LLMEmbeddingRequest, Tool
+from kirara_ai.llm.format.response import LLMEmbeddingResponse, LLMChatResponse, Message, ToolCall, Function, Usage
 from kirara_ai.logger import get_logger
 from kirara_ai.media.manager import MediaManager
 from kirara_ai.tracing import trace_llm_chat
@@ -136,6 +136,34 @@ class OllamaAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
                 prompt_tokens=response_data['prompt_eval_count'],
                 completion_tokens=response_data['eval_count'],
                 total_tokens=response_data['prompt_eval_count'] + response_data['eval_count'],
+            )
+        )
+
+    def embed(self, req: LLMEmbeddingRequest) -> LLMEmbeddingResponse:
+        # https://github.com/ollama/ollama/blob/main/docs/api.md#generate-embeddings api文档地址
+        api_url = f"{self.config.api_base}/api/embed"
+        headers = {"Content-Type": "application/json"}
+        if not all(isinstance(input, LLMChatTextContent) for input in req.inputs):
+            raise ValueError("ollama api does not support multi-modal embedding")
+        inputs = cast(list[LLMChatTextContent], req.inputs)
+        data = {
+            "model": req.model,
+            "input": [input.text for input in inputs],
+            # 禁止自动截断输入数据用以适应上下文长度
+            "truncate": req.truncate
+        }
+        data = { k:v for k, v in data.items() if v is not None }
+        response = requests.post(api_url, json=data, headers=headers)
+        try:
+            response.raise_for_status()
+            response_data = response.json()
+        except Exception as e:
+            self.logger.error(f"API Response: {response.text}")
+            raise e
+        return LLMEmbeddingResponse(
+            vectors=response_data["embeddings"],
+            usage=Usage(
+                prompt_tokens=response_data.get("prompt_eval_count", 0)
             )
         )
 

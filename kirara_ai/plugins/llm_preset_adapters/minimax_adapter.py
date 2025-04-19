@@ -8,3 +8,5 @@ class MinimaxAdapter(OpenAIAdapter):
     def __init__(self, config: MinimaxConfig):
         super().__init__(config)
 
+    def embed(self, req):
+        raise NotImplementedError("Minimax does not support embedding")

@@ -42,3 +42,14 @@ class LLMChatResponse(BaseModel):
     model: Optional[str] = None
     usage: Optional[Usage] = None
     message: Message
+
+vector = list[float | int] # 后续可能需要使用numpy库进行精确的数据类型标注
+class LLMEmbeddingResponse(BaseModel):
+    """
+    向量维度请使用len(vector)自行计算。
+    Attributes:
+        vectors: list[vector]
+        usage: Optional[Usage] = None
+    """
+    vectors: list[vector]
+    usage: Optional[Usage] = None

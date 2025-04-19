@@ -56,7 +56,10 @@ class TestAdapter(LLMBackendAdapter):
                 total_tokens=30
             ),
         )
-
+    
+    def embed(self, req):
+        # 为了解决抽象方法强制重写。
+        pass
 
 # ==================== Fixtures ====================
 @pytest.fixture(scope="session")

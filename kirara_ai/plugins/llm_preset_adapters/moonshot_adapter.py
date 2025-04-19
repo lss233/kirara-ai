@@ -10,3 +10,6 @@ class MoonshotConfig(OpenAIConfig):
 class MoonshotAdapter(OpenAIAdapter):
     def __init__(self, config: MoonshotConfig):
         super().__init__(config)
+
+    def embed(self, req):
+        raise NotImplementedError("Moonshot does not support embedding")
