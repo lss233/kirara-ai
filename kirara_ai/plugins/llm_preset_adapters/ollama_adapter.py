@@ -33,19 +33,11 @@ async def resolve_media_ids(media_ids: list[str], media_manager: MediaManager) -
     return result
 
 def convert_llm_response(response_data: dict[str, dict]) -> list[LLMChatContentPartType]:
-    # 在官方文档中无法得知tool_call时content是否为空，因此两个都记录下来
-    content: list[LLMChatContentPartType] = [LLMChatTextContent(text=response_data["message"].get("content", ""))]
-    calls = []
-    if response_data["message"].get("tool_calls", None):
-        for tool_call in response_data["message"]["tool_calls"]:
-            calls.append(
-                LLMToolCallContent(
-                    name=tool_call["function"]["name"],
-                    parameters=tool_call["function"].get("arguments", None)
-                )
-            )
-        content.extend(calls)
-    return content
+    # 通过实践证明 llm 调用工具时 content 字段为空字符串没有任何有效信息不进行记录
+    if calls := response_data["message"].get("tool_calls", None):
+        return [LLMToolCallContent(name=call["function"]["name"], parameters=call["function"].get("arguments", None)) for call in calls]
+    else:
+        return [LLMChatTextContent(text=response_data["message"].get("content", ""))]
 
 def convert_non_tool_message(msg: LLMChatMessage, media_manager: MediaManager, loop: asyncio.AbstractEventLoop) -> dict[str, Any]:
     text_content = ""

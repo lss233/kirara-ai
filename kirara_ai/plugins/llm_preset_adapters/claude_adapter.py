@@ -159,9 +159,8 @@ class ClaudeAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
                     image_data, res["source"]["media_type"], source="claude response"))
                 content.append(LLMChatImageContent(media_id=media))
             elif res["type"] == "tool_use":
-                content.append(LLMToolCallContent(id=res.get(
-                    "id", None), name=res["name"], parameters=res.get("input", None)))
-
+                # tool_call 时 只会额外返回一个 text 的深度思考。
+                content.append(LLMToolCallContent(id=res.get("id", None), name=res["name"], parameters=res.get("input", None)))
         usage_data = response_data.get("usage", {})
         input_tokens = usage_data.get("input_tokens", 0)
         output_tokens = usage_data.get("output_tokens", 0)
