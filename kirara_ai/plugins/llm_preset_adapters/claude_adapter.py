@@ -1,17 +1,19 @@
 import asyncio
 import base64
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import aiohttp
 import requests
 from pydantic import BaseModel, ConfigDict
 from mcp.types import TextContent, ImageContent, EmbeddedResource, TextResourceContents, BlobResourceContents
 
+import kirara_ai.llm.format.tool as tools
 from kirara_ai.llm.adapter import AutoDetectModelsProtocol, LLMBackendAdapter
 from kirara_ai.llm.format.message import (LLMChatContentPartType, LLMChatImageContent, LLMChatMessage,
                                           LLMChatTextContent, LLMToolCallContent, LLMToolResultContent)
 from kirara_ai.llm.format.request import LLMChatRequest, Tool
-from kirara_ai.llm.format.response import Function, LLMChatResponse, Message, ToolCall, Usage
+from kirara_ai.llm.format.response import LLMChatResponse, Message, ToolCall, Usage
+from kirara_ai.llm.format.tool import Function, ToolCall
 from kirara_ai.logger import get_logger
 from kirara_ai.media.manager import MediaManager
 from kirara_ai.tracing.decorator import trace_llm_chat
@@ -24,14 +26,14 @@ class ClaudeConfig(BaseModel):
 
 
 async def convert_llm_chat_message_to_claude_message(messages: list[LLMChatMessage], media_manager: MediaManager) -> list[dict]:
-    content: list[dict] = []
+    content: List[Dict[str, Any]] = []
     for msg in [msg for msg in messages if msg.role in ["user", "assistant", "tool"]]:
-        parts: list[dict] = []
+        parts: List[Dict[str, Any]] = []
         for part in msg.content:
             if isinstance(part, LLMChatTextContent):
                 parts.append({"type": "text", "text": part.text})
             elif isinstance(part, LLMToolResultContent):
-                parts.append(resolve_tool_result(part))
+                parts.append(await resolve_tool_result(part, media_manager))
             elif isinstance(part, LLMToolCallContent):
                 continue
             elif isinstance(part, LLMChatImageContent):
@@ -45,54 +47,50 @@ async def convert_llm_chat_message_to_claude_message(messages: list[LLMChatMessa
         })
     return content
 
+
 def resolve_tool_calls(content: list[dict]) -> Optional[list[ToolCall]]:
     tool_calls = []
     for part in content:
         if part.get("type") == "tool_use":
             tool_calls.append(
-                    ToolCall(
-                        id=part.get("id"),
-                        type=part.get("type"),
-                        function=Function(
-                            name=part.get("name"),
-                            arguments=part.get("input", None),
-                        )
+                ToolCall(
+                    model="claude",
+                    id=part.get("id"),
+                    type=part.get("type"),
+                    function=Function(
+                        name=part.get("name", ""),
+                        arguments=part.get("input", None),
                     )
                 )
+            )
     # 当tool_calls为空时，返回None
     if tool_calls:
         return tool_calls
     else:
         return None
 
+
 def convert_tools_to_claude_format(tools: list[Tool]) -> list[dict]:
     # 使用 pydantic 的 model_dump 方法，高级排除项`exclude`排除 openai 专属项
     return [tool.model_dump(exclude={"strict": True, 'parameters': {'additionalProperties': True}}) for tool in tools]
 
-def resolve_tool_result(element: LLMToolResultContent) -> dict:
-    # 按照 claude api 规则处理工具返回结果
-    result =  {"type": "tool_result", "tool_use_id": element.id}
-
-    if element.isError:
-        result["content"] = element.content
-        result["is_error"] = True
-        return result
-    
-    contents: list[dict] = []
-    for content in element.content:
-        if isinstance(content, TextContent):
-            contents.append({"type": "text", "text": content.text})
-        elif isinstance(content, ImageContent):
-            contents.append({"type": "image", "source": {"type": "base64", "media_type": content.mimeType, "data": content.data}})
-        elif isinstance(content, EmbeddedResource):
-            # 以下为推测内容， api没有说明
-            if isinstance(content.resource, TextResourceContents):
-                contents.append({"type": "embedded_resource", "source": {"type": "text", "data": content.resource.text}})
-            elif isinstance(content.resource, BlobResourceContents):
-                contents.append({"type": "embedded_resource", "source": {"type": "binary_large_object", "data": content.resource.blob}})
-
-    result["content"] = contents
-    return result
+async def resolve_tool_result(element: LLMToolResultContent, media_manager: MediaManager) -> dict:
+    tool_result = []
+    for item in element.content:
+        if isinstance(item, tools.TextContent):
+            tool_result.append({"type": "text", "text": item.text})
+        elif isinstance(item, tools.MediaContent):
+            media = media_manager.get_media(item.media_id)
+            if media is None:
+                raise ValueError(
+                    f"Media {item.media_id} not found")
+            tool_result.append({
+                "type": media.media_type.value.lower(),
+                "source": {
+                    "type": "base64", "media_type": str(media.mime_type), "data": await media.get_base64()
+                }
+            })
+    return {"type": "tool_result", "tool_use_id": element.id, "content": tool_result, "is_error": element.isError}
     
 class ClaudeAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
 
@@ -132,7 +130,7 @@ class ClaudeAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
             "stream": req.stream,
             # claude tools格式中参数部分命名与openai api不同，不能简单使用model_dumps，在这里进行转换
             "tools": convert_tools_to_claude_format(req.tools) if req.tools else None,
-            # claude默认如果使用了tools字段，这里需要指定tool_choice， claude默认为{"type": "auto"}. 
+            # claude默认如果使用了tools字段，这里需要指定tool_choice， claude默认为{"type": "auto"}.
             # 可考虑后续给用户暴露此接口， 目前此处各模型定义不太统一
             "tool_choice": {"type": "auto"} if req.tools else None,
         }
@@ -164,7 +162,7 @@ class ClaudeAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
         usage_data = response_data.get("usage", {})
         input_tokens = usage_data.get("input_tokens", 0)
         output_tokens = usage_data.get("output_tokens", 0)
-        
+
         return LLMChatResponse(
             model=req.model,
             usage=Usage(
@@ -177,7 +175,7 @@ class ClaudeAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
                 role=response_data.get("role", "assistant"),
                 finish_reason=response_data.get("stop_reason", "stop"),
                 # claude tool_call混合在content字段中，需要提取
-                tool_calls = resolve_tool_calls(response_data["content"]),
+                tool_calls=resolve_tool_calls(response_data["content"]),
             )
         )
 

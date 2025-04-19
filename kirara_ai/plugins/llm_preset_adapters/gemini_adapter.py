@@ -8,11 +8,13 @@ import requests
 from pydantic import BaseModel, ConfigDict
 from mcp.types import TextContent, ImageContent, EmbeddedResource
 
+import kirara_ai.llm.format.tool as tool
 from kirara_ai.llm.adapter import AutoDetectModelsProtocol, LLMBackendAdapter
 from kirara_ai.llm.format.message import (LLMChatContentPartType, LLMChatImageContent, LLMChatMessage,
                                           LLMChatTextContent, LLMToolCallContent, LLMToolResultContent)
 from kirara_ai.llm.format.request import LLMChatRequest, Tool
-from kirara_ai.llm.format.response import Function, LLMChatResponse, Message, ToolCall, Usage
+from kirara_ai.llm.format.response import LLMChatResponse, Message, ToolCall, Usage
+from kirara_ai.llm.format.tool import Function, ToolCall
 from kirara_ai.logger import get_logger
 from kirara_ai.media import MediaManager
 from kirara_ai.tracing import trace_llm_chat
@@ -81,8 +83,7 @@ async def convert_llm_chat_message_to_gemini_message(msg: LLMChatMessage, media_
         return await convert_non_tool_message(msg, media_manager)
     elif msg.role == "tool":
         results = cast(list[LLMToolResultContent], msg.content)
-        # 此处按照 API 文档，不指定 role    
-        return {"parts": [resolve_tool_results(result) for result in results]}
+        return {"role": "user", "parts": [resolve_tool_results(result, media_manager) for result in results]}
     else:
         raise ValueError(f"Invalid role: {msg.role}")
 
@@ -98,53 +99,69 @@ def resolve_function_call(calls: list[LLMChatContentPartType]) -> Optional[list[
         return None
 
 def convert_tools_to_gemini_format(tools: list[Tool]) -> list[dict[Literal["function_declarations"], list[dict]]]:
-    return [{
-        "function_declarations": [tool.model_dump(include={
-            # 所以这里为何要使用include? 排除应该更少吧
-            "name": True, 
-            "description": True, 
-            "parameters": {
-                "type": True,
-                "properties": {
+    # 定义允许的字段结构
+    allowed_keys = {
+        "name": True,
+        "description": True,
+        "parameters": {
+            "type": True,
+            "properties": {
+                "*": {
                     "type": True,
+                    "title": True,
                     "description": True,
-                    "enum": True
-                },
+                    "enum": True,
+                    "default": True,
+                    "items": True,
+                }
             },
             "required": True
-            
-        }) for tool in tools]
-    }]
-
-def resolve_tool_results(element: LLMToolResultContent) -> dict[Literal["FunctionResponse"], dict]:
-    if element.isError:
-        return {
-            "FunctionResponse": {
-                "name": element.name, 
-                "response": {
-                    "name": element.name, 
-                    "content": f"An error occurred when calling tool {element.content}."
-                }
-            }
         }
-    
-    contents = []
+    }
+
+    def filter_dict(data: dict, allowed: dict) -> dict:
+        """递归过滤字典，只保留允许的字段"""
+        result = {}
+        for key, value in allowed.items():
+            if key == "*" and isinstance(value, dict):
+                # 处理通配符情况，适用于 properties 字典
+                for data_key, data_value in data.items():
+                    if isinstance(data_value, dict):
+                        result[data_key] = filter_dict(data_value, value)
+                    else:
+                        result[data_key] = data_value
+            elif key in data:
+                if isinstance(value, dict) and isinstance(data[key], dict):
+                    # 如果是嵌套字典，递归处理
+                    result[key] = filter_dict(data[key], value)
+                else:
+                    # 否则直接保留值
+                    result[key] = data[key]
+        return result
+
+    function_declarations = []
+    for tool in tools:
+        # 将Tool对象转换为字典
+        tool_dict = tool.model_dump()
+        # 过滤出需要的字段
+        filtered_tool = filter_dict(tool_dict, allowed_keys)
+        function_declarations.append(filtered_tool)
+
+    return [{"function_declarations": function_declarations}]
+
+def resolve_tool_results(element: LLMToolResultContent) -> dict:
+    # 全部拼接成字符串
+    output = ""
     for content in element.content:
-        if isinstance(content, TextContent):
-            contents.append(content.text)
-        # 暂且未在 api 中找到关于下列两种格式的说明，先不处理
-        elif isinstance(content, ImageContent):
-            continue
-        elif isinstance(content, EmbeddedResource):
-            continue
+        if isinstance(content, tool.TextContent):
+            output += content.text
+        elif isinstance(content, tool.MediaContent):
+            # FIXME: Gemini 不支持 response 传媒体内容，需要从额外的 message 中传入，类似于 **篡改记忆**
+            output += f"<media id={content.media_id} mime_type={content.mime_type} />"
     return {
-        "FunctionResponse": {
+        "functionResponse": {
             "name": element.name,
-            "response": {
-                "name": element.name,
-                # content 是具体信息段，其格式与 tool 返回结果相关，llm没有特殊要求，不做转换。
-                "content": contents
-            }
+            "response": {"error": output} if element.isError else {"output": output}
         }
     }
 

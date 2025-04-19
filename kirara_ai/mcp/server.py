@@ -179,7 +179,7 @@ class MCPServer:
         assert self.session is not None 
         return await self.session.list_tools()
     
-    async def call_tool(self, tool_name: str, tool_args: dict) -> types.CallToolResult:
+    async def call_tool(self, tool_name: str, tool_args: Optional[dict] = None) -> types.CallToolResult:
         """
         调用指定工具
         

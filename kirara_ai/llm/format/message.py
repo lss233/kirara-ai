@@ -1,10 +1,10 @@
 import json
-from typing import Any, Literal, Optional, Union
+from typing import Literal, Optional, Union
 
 from pydantic import BaseModel, field_validator, model_validator
 from typing_extensions import Self
 
-from mcp.types import EmbeddedResource, ImageContent, TextContent
+from .tool import LLMToolResultContent
 
 RoleType = Literal["system", "user", "assistant"]
 ResultTypes = Union[TextContent, ImageContent, EmbeddedResource]
@@ -34,25 +34,6 @@ class LLMToolCallContent(BaseModel):
         if isinstance(v, str):
             return json.loads(v)
         return v
-
-class LLMToolResultContent(BaseModel):
-    """
-    这是工具回应的消息内容,
-    模型强相关内容，如果你 message 或者 memory 内包含了这个内容，请保证调用同一个 model
-    此部分 role 应该对应 "tool"
-    """
-    type: Literal["tool_result"] = "tool_result"
-    id: Optional[str] = None
-    name: str
-    # 统一传递mcp.types.CallToolResult交由adapter自行处理, str是仅发生错误时才允许的类型
-    content: Union[list[ResultTypes],str]
-    isError: bool = False
-
-    @model_validator(mode="after")
-    def check_content_type(self) -> Self:
-        if self.isError and not isinstance(self.content, str):
-            raise ValueError("content must be a str, when isError is True")
-        return self
 
 LLMChatContentPartType = Union[LLMChatTextContent, LLMChatImageContent, LLMToolCallContent, LLMToolResultContent]
 RoleTypes = Literal["user", "assistant", "system", "tool"]

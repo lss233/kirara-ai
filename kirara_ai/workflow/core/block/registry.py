@@ -149,7 +149,7 @@ class BlockRegistry:
 
         # 获取 Block 类的输入输出定义
         for name, input_info in getattr(block_type, "inputs", {}).items():
-            type_name = self._type_system.get_type_name(input_info.data_type)
+            type_name, _, _ = self._type_system.extract_type_info(input_info.data_type)
             self._type_system.register_type(type_name, input_info.data_type)
 
             inputs[name] = BlockInput(
@@ -162,7 +162,7 @@ class BlockRegistry:
             )
 
         for name, output_info in getattr(block_type, "outputs", {}).items():
-            type_name = self._type_system.get_type_name(output_info.data_type)
+            type_name, _, _ = self._type_system.extract_type_info(output_info.data_type)
             self._type_system.register_type(type_name, output_info.data_type)
 
             outputs[name] = BlockOutput(

@@ -1,17 +1,19 @@
 import asyncio
 import json
-from typing import Optional, cast
+from typing import Any, Dict, Optional, cast
 
 import aiohttp
 import requests
 from pydantic import BaseModel, ConfigDict
 from mcp.types import TextContent, ImageContent, EmbeddedResource
 
+import kirara_ai.llm.format.tool as tools
 from kirara_ai.llm.adapter import AutoDetectModelsProtocol, LLMBackendAdapter
 from kirara_ai.llm.format.message import (LLMChatContentPartType, LLMChatImageContent, LLMChatMessage,
                                           LLMChatTextContent, LLMToolCallContent, LLMToolResultContent)
-from kirara_ai.llm.format.request import LLMChatRequest
-from kirara_ai.llm.format.response import Function, LLMChatResponse, Message, ToolCall, Usage
+from kirara_ai.llm.format.request import LLMChatRequest, Tool
+from kirara_ai.llm.format.response import LLMChatResponse, Message, ToolCall, Usage
+from kirara_ai.llm.format.tool import Function, ToolCall
 from kirara_ai.logger import get_logger
 from kirara_ai.media import MediaManager
 from kirara_ai.tracing import trace_llm_chat
@@ -22,11 +24,11 @@ async def convert_parts_factory(messages: LLMChatMessage, media_manager: MediaMa
     if messages.role == "tool":
         # typing.cast 指定类型，避免mypy报错
         results = cast(list[LLMToolResultContent], messages.content)
-        # 保证 content 为一个字符串
-        return [{"role": "tool", "tool_call_id": result.id, "content": resolve_tool_results(result)} for result in results]
+        return [{"role": "tool", "tool_call_id": result.id, "content": resolve_tool_results(result, media_manager)} for result in results]
     else:
         parts = []
         elements = cast(list[LLMChatContentPartType], messages.content)
+        tool_calls: list[dict[str, Any]] = []
         for element in elements:
             if isinstance(element, LLMChatTextContent):
                 parts.append(element.model_dump(mode="json"))
@@ -41,10 +43,20 @@ async def convert_parts_factory(messages: LLMChatMessage, media_manager: MediaMa
                     }
                 })
             elif isinstance(element, LLMToolCallContent):
-                # 忽略tool_call_content，openai api不需要。
-                # 保留这个判断分支，防止openai api接口出现变动。
-                continue
-        return [{"role": messages.role, "content": parts}]
+                tool_calls.append({
+                    "type": "function",
+                    "id": element.id,
+                    "function": {
+                        "name": element.name,
+                        "arguments": json.dumps(element.parameters or {}, ensure_ascii=False),
+                    }
+                })
+        response: Dict[str, Any] = {"role": messages.role}
+        if parts:
+            response["content"] = parts
+        if tool_calls:
+            response["tool_calls"] = tool_calls
+        return [response]
 
 def convert_llm_chat_message_to_openai_message(messages: list[LLMChatMessage], media_manager: MediaManager, loop: asyncio.AbstractEventLoop) -> list[dict]:
     results = loop.run_until_complete(
@@ -52,6 +64,17 @@ def convert_llm_chat_message_to_openai_message(messages: list[LLMChatMessage], m
     )
     # 扁平化结果, 展开所有列表
     return [item for sublist in results for item in sublist]
+
+def convert_tools_to_openai_format(tools: list[Tool]) -> list[dict]:
+    return [{
+        "type": "function",
+        "function": {
+            "name": tool.name,
+            "description": tool.description,
+            "parameters": tool.parameters if isinstance(tool.parameters, dict) else tool.parameters.model_dump(),
+            "strict": tool.strict,
+        }
+    } for tool in tools]
 
 def resolve_tool_calls_from_response(tool_calls: Optional[list[dict]]):
     if tool_calls is None:
@@ -62,28 +85,25 @@ def resolve_tool_calls_from_response(tool_calls: Optional[list[dict]]):
             type=call["type"],
             function=Function(
                 name=call["function"]["name"],
-                # openai api 的 arguments 值是一个长得像dict的字符串, 交给 pydantic 验证器转换
-                arguments=call["function"].get("arguments", None)
+                arguments=json.loads(call["function"].get("arguments", "{}"))
             )
         ) for call in tool_calls]
     
-def resolve_tool_results(element: LLMToolResultContent) -> str:
-    # 虽然这里只转化了text类型，但是为了后续拓展性还是单独作为一个函数
-    if element.isError:
-        return f"An error occurred when calling the tool: {element.content}"
-    
-    contents: list[dict] = []
+def resolve_tool_results(element: LLMToolResultContent, media_manager: MediaManager) -> str:
+    output = ""
     for content in element.content:
-        if isinstance(element.content, TextContent):
-            contents.append(content.text)
-        elif isinstance(element.content, ImageContent):
-            logger.warning("Image is not supported in openai tool results")
-            continue
-        elif isinstance(element.content, EmbeddedResource):
-            logger.warning("Embedded resource is not supported in openai tool results")
-            continue
-    
-    return json.dumps(contents)
+        if isinstance(content, tools.TextContent):
+            output = content.text
+        elif isinstance(content, tools.MediaContent):
+                    media = media_manager.get_media(content.media_id)
+                    if media is None:
+                        raise ValueError(f"Media {content.media_id} not found")
+                    output += f"<media id={content.media_id} mime_type={content.mime_type} />"
+        else:
+            raise ValueError(f"Unsupported content type: {type(content)}")
+    if element.isError:
+        output = f"an error occurred when calling the tool: {element.name}\n" + output
+    return output
     
 class OpenAIConfig(BaseModel):
     api_key: str
@@ -120,7 +140,7 @@ class OpenAIAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
             "temperature": req.temperature,
             "top_p": req.top_p,
             # tool pydantic 模型按照 openai api 格式进行的建立。所以这里直接dump
-            "tools": [tool.model_dump() for tool in req.tools] if req.tools else None,
+            "tools": convert_tools_to_openai_format(req.tools) if req.tools else None,
             "tool_choice": "auto" if req.tools else None,
             "logprobs": req.logprobs,
             "top_logprobs": req.top_logprobs,
@@ -150,7 +170,7 @@ class OpenAIAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
             content = [LLMToolCallContent(
                 id=call["id"],
                 name=call["function"]["name"],
-                parameters=call["function"].get("parameters", None)
+                parameters=json.loads(call["function"].get("arguments", "{}"))
             ) for call in tool_calls]
         else:
             content = [LLMChatTextContent(text=message.get("content", ""))]
@@ -167,15 +187,7 @@ class OpenAIAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
             message=Message(
                 content=content,
                 role=message.get("role", "assistant"),
-                # tool_calls=[
-                #     ToolCall(
-                #         model = "openai",
-                #         id=tool_call["id"], 
-                #         type=tool_call["type"],
-                #         function=Function(name = tool_call["function"]["name"], arguments=tool_call["function"].get("arguments", None))
-                #     ) for tool_call in message.get("tool_calls")
-                # ] if message.get("tool_calls", None) else None,
-                tool_calls = resolve_tool_calls_from_response(response_data.get("tool_calls", None)),
+                tool_calls = resolve_tool_calls_from_response(message.get("tool_calls", None)),
                 finish_reason=first_choice.get("finish_reason", ""),
             ),
         )

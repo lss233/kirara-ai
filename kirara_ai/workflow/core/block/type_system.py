@@ -1,5 +1,5 @@
 from inspect import Parameter
-from typing import Any, Dict, Optional, Type, Union, get_args, get_origin
+from typing import Any, Dict, Optional, Type, Union, get_args, get_origin, overload
 
 
 class TypeSystem:
@@ -22,18 +22,30 @@ class TypeSystem:
         if hasattr(type_obj, "__name__"):
             return type_obj.__name__
         return str(type_obj)
+    
+    @overload
+    def extract_type_info(self, param: Parameter) -> tuple[str, bool, Any]: ...
 
-    def extract_type_info(self, param: Parameter) -> tuple[str, bool, Any]:
+    @overload
+    def extract_type_info(self, param: Type) -> tuple[str, bool, Any]: ...
+
+    def extract_type_info(self, param: Union[Parameter, Type]) -> tuple[str, bool, Any]:
         """从参数中提取类型信息
         
         Returns:
             tuple: (type_name, required, default_value)
         """
-        param_type = param.annotation
-        required = True
-        default = param.default if param.default != Parameter.empty else None
-
-        if get_origin(param_type) is Union:
+        if isinstance(param, Parameter):
+            param_type = param.annotation
+            required = True
+            default = param.default if param.default != Parameter.empty else None
+            origin = get_origin(param_type)
+        else:
+            param_type = param
+            origin = get_origin(param_type)
+            default = None
+            required = True
+        if origin is Union:
             args = get_args(param_type)
             if type(None) in args:
                 required = False
@@ -44,11 +56,19 @@ class TypeSystem:
                     type_name = f"Union[{', '.join(self.get_type_name(arg) for arg in non_none_args)}]"
             else:
                 type_name = f"Union[{', '.join(self.get_type_name(arg) for arg in args)}]"
+        elif origin is list:
+            args = get_args(param_type)
+            if args:
+                element_type = args[0]
+                element_type_name = self.get_type_name(element_type)
+                type_name = f"List[{element_type_name}]"
+            else:
+                type_name = "list"
         else:
             type_name = self.get_type_name(param_type)
 
         # 注册类型
-        if param_type not in (str, int, float, bool, list, dict):
+        if param_type not in (str, int, float, bool, dict) or origin is not list:
             self.register_type(type_name, param_type)
 
         return type_name, required, default
