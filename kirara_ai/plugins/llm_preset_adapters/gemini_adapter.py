@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Literal, cast
 import aiohttp
 import requests
 from pydantic import BaseModel, ConfigDict
+from mcp.types import TextContent, ImageContent, EmbeddedResource
 
 import kirara_ai.llm.format.tool as tool
 from kirara_ai.llm.adapter import AutoDetectModelsProtocol, LLMBackendAdapter
@@ -81,35 +82,8 @@ async def convert_llm_chat_message_to_gemini_message(msg: LLMChatMessage, media_
     if msg.role in ["user", "assistant", "system"]:
         return await convert_non_tool_message(msg, media_manager)
     elif msg.role == "tool":
-        elements = cast(list[LLMToolResultContent], msg.content)
-        # tool_result 的 role 必定为 "tool"。同时 "tool" 角色 messages 中只能是 LLMToolResultContent
-        parts = []
-        for element in elements:
-            # 全部拼接成字符串
-            output = ""
-            
-            for content in element.content:
-                if isinstance(content, tool.TextContent):
-                    output += content.text
-                elif isinstance(content, tool.MediaContent):
-                    # FIXME: Gemini 不支持 response 传媒体内容，需要从额外的 message 中传入，类似于 **篡改记忆**
-                    output += f"<media id={content.media_id} mime_type={content.mime_type} />"
-            if element.isError:
-                parts.append({
-                    
-                    "functionResponse": {
-                        "name": element.name,
-                        "response": {"error": output}
-                    }
-                })
-            else:
-                parts.append({
-                    "functionResponse": {
-                        "name": element.name,
-                        "response": {"output": output}
-                    }
-                })
-        return {"role": "user", "parts": parts}
+        results = cast(list[LLMToolResultContent], msg.content)
+        return {"role": "user", "parts": [resolve_tool_results(result, media_manager) for result in results]}
     else:
         raise ValueError(f"Invalid role: {msg.role}")
 
@@ -163,6 +137,22 @@ def convert_tools_to_gemini_format(tools: list[Tool]) -> list[dict[Literal["func
         function_declarations.append(filtered_tool)
 
     return [{"function_declarations": function_declarations}]
+
+def resolve_tool_results(element: LLMToolResultContent) -> dict:
+    # 全部拼接成字符串
+    output = ""
+    for content in element.content:
+        if isinstance(content, tool.TextContent):
+            output += content.text
+        elif isinstance(content, tool.MediaContent):
+            # FIXME: Gemini 不支持 response 传媒体内容，需要从额外的 message 中传入，类似于 **篡改记忆**
+            output += f"<media id={content.media_id} mime_type={content.mime_type} />"
+    return {
+        "functionResponse": {
+            "name": element.name,
+            "response": {"error": output} if element.isError else {"output": output}
+        }
+    }
 
 class GeminiAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
 

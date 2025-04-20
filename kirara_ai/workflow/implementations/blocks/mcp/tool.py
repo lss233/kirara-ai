@@ -44,8 +44,6 @@ class MCPToolProvider(Block):
             raise ValueError(f"找不到工具: {tool_call.function.name}")
         server, original_name = server_info
         
-        result = await server.call_tool(original_name, tool_call.function.arguments)
-        
         tool_result = await self._create_tool_result(
             tool_call.id, tool_call.function.name, result.content
         )
@@ -101,3 +99,4 @@ class MCPToolProvider(Block):
             name=tool_name,
             content=converted_content
         )
+

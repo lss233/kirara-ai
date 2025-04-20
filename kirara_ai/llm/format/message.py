@@ -7,6 +7,7 @@ from typing_extensions import Self
 from .tool import LLMToolResultContent
 
 RoleType = Literal["system", "user", "assistant"]
+ResultTypes = Union[TextContent, ImageContent, EmbeddedResource]
 
 class LLMChatTextContent(BaseModel):
     type: Literal["text"] = "text"
@@ -26,7 +27,6 @@ class LLMToolCallContent(BaseModel):
     # call id，部分模型用此字段区分不同函数的调用，若没有返回则由 Adapter 生成
     id: str
     name: str
-    # tool可能没有参数。
     parameters: Optional[dict] = None
 
     @classmethod

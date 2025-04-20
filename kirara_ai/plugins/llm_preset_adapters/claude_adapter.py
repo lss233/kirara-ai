@@ -5,6 +5,7 @@ from typing import Any, Dict, List
 import aiohttp
 import requests
 from pydantic import BaseModel, ConfigDict
+from mcp.types import TextContent, ImageContent, EmbeddedResource, TextResourceContents, BlobResourceContents
 
 import kirara_ai.llm.format.tool as tools
 from kirara_ai.llm.adapter import AutoDetectModelsProtocol, LLMBackendAdapter
@@ -33,29 +34,8 @@ async def convert_llm_chat_message_to_claude_message(messages: list[LLMChatMessa
             if isinstance(part, LLMChatTextContent):
                 parts.append({"type": "text", "text": part.text})
             elif isinstance(part, LLMToolResultContent):
-                tool_result: List[Dict[str, Any]] = []
-                for item in part.content:
-                    if isinstance(item, tools.TextContent):
-                        tool_result.append({"type": "text", "text": item.text})
-                    elif isinstance(item, tools.MediaContent):
-                        media = media_manager.get_media(item.media_id)
-                        if media is None:
-                            raise ValueError(
-                                f"Media {item.media_id} not found")
-                        tool_result.append({
-                            "type": media.media_type.value.lower(),
-                            "source": {
-                                "type": "base64", "media_type": str(media.mime_type), "data": await media.get_base64()
-                            }
-                        })
-                parts.append({
-                    "type": "tool_result",
-                    "tool_use_id": part.id,
-                    "content": tool_result,
-                    "is_error": part.isError
-                })
+                parts.append(await resolve_tool_result(part, media_manager))
             elif isinstance(part, LLMToolCallContent):
-                # claude不需要tool_call内容
                 continue
             elif isinstance(part, LLMChatImageContent):
                 media = media_manager.get_media(part.media_id)
@@ -72,7 +52,24 @@ def convert_tools_to_claude_format(tools: list[Tool]) -> list[dict]:
     # 使用 pydantic 的 model_dump 方法，高级排除项`exclude`排除 openai 专属项
     return [tool.model_dump(exclude={"strict": True, 'parameters': {'additionalProperties': True}}) for tool in tools]
 
-
+async def resolve_tool_result(element: LLMToolResultContent, media_manager: MediaManager) -> dict:
+    tool_result = []
+    for item in element.content:
+        if isinstance(item, tools.TextContent):
+            tool_result.append({"type": "text", "text": item.text})
+        elif isinstance(item, tools.MediaContent):
+            media = media_manager.get_media(item.media_id)
+            if media is None:
+                raise ValueError(
+                    f"Media {item.media_id} not found")
+            tool_result.append({
+                "type": media.media_type.value.lower(),
+                "source": {
+                    "type": "base64", "media_type": str(media.mime_type), "data": await media.get_base64()
+                }
+            })
+    return {"type": "tool_result", "tool_use_id": element.id, "content": tool_result, "is_error": element.isError}
+    
 class ClaudeAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
 
     media_manager: MediaManager

@@ -4,6 +4,7 @@ from typing import Any, List, cast
 import aiohttp
 import requests
 from pydantic import BaseModel, ConfigDict
+from mcp.types import TextContent, ImageContent, EmbeddedResource
 
 import kirara_ai.llm.format.tool as tools
 from kirara_ai.llm.adapter import AutoDetectModelsProtocol, LLMBackendAdapter
@@ -33,7 +34,6 @@ async def resolve_media_ids(media_ids: list[str], media_manager: MediaManager) -
             result.append(base64_data)
     return result
 
-
 def convert_llm_response(response_data: dict[str, dict[str, Any]]) -> list[LLMChatContentPartType]:
     # 通过实践证明 llm 调用工具时 content 字段为空字符串没有任何有效信息不进行记录
     if calls := response_data["message"].get("tool_calls", None):
@@ -45,7 +45,6 @@ def convert_llm_response(response_data: dict[str, dict[str, Any]]) -> list[LLMCh
         ]
     else:
         return [LLMChatTextContent(text=response_data["message"].get("content", ""))]
-
 
 def convert_non_tool_message(msg: LLMChatMessage, media_manager: MediaManager, loop: asyncio.AbstractEventLoop) -> dict[str, Any]:
     text_content = ""
@@ -98,7 +97,6 @@ def convert_tool_result_message(msg: LLMChatMessage, media_manager: MediaManager
 def convert_tools_to_ollama_format(tools: list[Tool]) -> list[dict]:
     # 这里将其独立出来方便应对后续接口改动
     return convert_tools_to_openai_format(tools)
-
 
 class OllamaAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
     def __init__(self, config: OllamaConfig):
