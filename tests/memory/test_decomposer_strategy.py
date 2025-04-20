@@ -84,16 +84,16 @@ class TestTextContentStrategy:
 
 
 class TestMediaContentStrategy:
-    def test_extract_content(self, mock_container, sample_entry):
-        strategy = MediaContentStrategy(mock_container)
+    def test_extract_content(self, sample_entry):
+        strategy = MediaContentStrategy()
         content_infos = strategy.extract_content(sample_entry.content, sample_entry)
 
         assert len(content_infos) == 1
         assert content_infos[0].content_type == "media"
         assert content_infos[0].metadata["media_id"] == "media1"
 
-    def test_to_llm_content(self, mock_container):
-        strategy = MediaContentStrategy(mock_container)
+    def test_to_llm_content(self):
+        strategy = MediaContentStrategy()
         info = ContentInfo(
             content_type="media",
             start=0,
@@ -106,8 +106,8 @@ class TestMediaContentStrategy:
         assert isinstance(content, LLMChatImageContent)
         assert content.media_id == "media1"
 
-    def test_to_text(self, mock_container):
-        strategy = MediaContentStrategy(mock_container)
+    def test_to_text(self):
+        strategy = MediaContentStrategy()
         info = ContentInfo(
             content_type="media",
             start=0,
@@ -227,8 +227,8 @@ class TestToolResultContentStrategy:
 
 
 class TestContentParser:
-    def test_parse_content(self, mock_container, sample_entry):
-        parser = ContentParser(mock_container)
+    def test_parse_content(self, sample_entry):
+        parser = ContentParser()
         content_infos = parser.parse_content(sample_entry.content, sample_entry)
 
         assert len(content_infos) == 6  # 3 text parts + 1 media + 1 tool call + 1 tool result = 6
@@ -237,8 +237,8 @@ class TestContentParser:
         for i in range(len(content_infos) - 1):
             assert content_infos[i].start < content_infos[i + 1].start
 
-    def test_to_llm_message(self, mock_container):
-        parser = ContentParser(mock_container)
+    def test_to_llm_message(self):
+        parser = ContentParser()
         content_infos = [
             ContentInfo(content_type="text", start=0, end=10, text="Hello"),
             ContentInfo(content_type="media", start=11, end=20, text="<media_msg id=\"media1\" />", metadata={"media_id": "media1"})
@@ -251,8 +251,8 @@ class TestContentParser:
         assert isinstance(message.content[0], LLMChatTextContent)
         assert isinstance(message.content[1], LLMChatImageContent)
 
-    def test_to_text(self, mock_container):
-        parser = ContentParser(mock_container)
+    def test_to_text(self):
+        parser = ContentParser()
         content_infos = [
             ContentInfo(content_type="text", start=0, end=10, text="Hello"),
             ContentInfo(content_type="media", start=11, end=20, text="<media_msg id=\"media1\" />", metadata={"media_id": "media1"})
@@ -263,15 +263,15 @@ class TestContentParser:
 
 
 class TestDefaultDecomposerStrategy:
-    def test_decompose_empty_entries(self, mock_container):
-        strategy = DefaultDecomposerStrategy(mock_container)
+    def test_decompose_empty_entries(self):
+        strategy = DefaultDecomposerStrategy()
         result = strategy.decompose([], {"empty_message": "空消息"})
 
         assert len(result) == 1
         assert result[0] == "空消息"
 
-    def test_decompose_with_entries(self, mock_container, sample_entry):
-        strategy = DefaultDecomposerStrategy(mock_container)
+    def test_decompose_with_entries(self, sample_entry):
+        strategy = DefaultDecomposerStrategy()
         result = strategy.decompose([sample_entry], {})
 
         assert len(result) == 1
@@ -281,14 +281,14 @@ class TestDefaultDecomposerStrategy:
 
 
 class TestMultiElementDecomposerStrategy:
-    def test_decompose_empty_entries(self, mock_container):
-        strategy = MultiElementDecomposerStrategy(mock_container)
+    def test_decompose_empty_entries(self):
+        strategy = MultiElementDecomposerStrategy()
         result = strategy.decompose([], {})
 
         assert len(result) == 0
 
-    def test_process_entry_user_content(self, mock_container):
-        strategy = MultiElementDecomposerStrategy(mock_container)
+    def test_process_entry_user_content(self):
+        strategy = MultiElementDecomposerStrategy()
         entry = MemoryEntry(
             sender=ChatSender(user_id="user1", chat_type=ChatType.C2C, display_name="Test User"),
             content="用户消息",
@@ -302,8 +302,8 @@ class TestMultiElementDecomposerStrategy:
         assert isinstance(messages[0].content[0], LLMChatTextContent)
         assert messages[0].content[0].text == "用户消息"
 
-    def test_process_entry_with_ai_response(self, mock_container):
-        strategy = MultiElementDecomposerStrategy(mock_container)
+    def test_process_entry_with_ai_response(self):
+        strategy = MultiElementDecomposerStrategy()
         entry = MemoryEntry(
             sender=ChatSender(user_id="user1", chat_type=ChatType.C2C, display_name="Test User"),
             content="用户消息\n你回答: AI回复",
@@ -319,8 +319,8 @@ class TestMultiElementDecomposerStrategy:
         assert isinstance(messages[1].content[0], LLMChatTextContent)
         assert messages[1].content[0].text == "AI回复"
 
-    def test_merge_adjacent_messages(self, mock_container):
-        strategy = MultiElementDecomposerStrategy(mock_container)
+    def test_merge_adjacent_messages(self):
+        strategy = MultiElementDecomposerStrategy()
         messages = [
             LLMChatMessage(role="user", content=[LLMChatTextContent(text="消息1")]),
             LLMChatMessage(role="user", content=[LLMChatTextContent(text="消息2")]),

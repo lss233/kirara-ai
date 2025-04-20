@@ -12,8 +12,10 @@ from kirara_ai.memory.composes import DefaultMemoryComposer, DefaultMemoryDecomp
 
 @pytest.fixture
 def composer():
-    return DefaultMemoryComposer()
-
+    container = MagicMock()
+    composer = DefaultMemoryComposer()
+    composer.container = container
+    return composer
 
 @pytest.fixture
 def decomposer():
@@ -73,18 +75,15 @@ class TestDefaultMemoryComposer:
 
         entry = composer.compose(c2c_sender, [chat_message])
 
-        # 判断其是否为空字符串
-        assert entry.content == ""
         # 是否metadata中 _tool_calls 字段为非空列表
-        assert entry.metadata.get("_tool_calls", None) is not None
+        assert len(entry.metadata.get("_tool_calls", [])) > 0
 
     def test_compose_llm_tool_result_message(self, composer, c2c_sender):
         chat_message = LLMChatMessage(role = "tool", content = [LLMToolResultContent(name = "get_weather", content = [tools.TextContent(text="今天的天气是晴天。")])])
 
         entry = composer.compose(c2c_sender, [chat_message])
 
-        assert entry.content == ""
-        assert entry.metadata.get("_tool_results", None) is not None
+        assert len(entry.metadata.get("_tool_results", [])) > 0
 
 class TestDefaultMemoryDecomposer:
     def test_decompose_mixed_entries(self, decomposer, group_sender, c2c_sender):
@@ -132,19 +131,21 @@ class TestMultiElementDecomposer:
         entries = [
             MagicMock(
                 sender=c2c_sender,
-                content="",
+                content="<function_call id=\"call_114514\" name=\"get_weather\" />",
                 timestamp=datetime.now(),
-                metadata={"_tool_calls": [LLMToolCallContent(id ="call_114514",name="get_weather", parameters={"city": "北京"}).model_dump_json()]},
+                metadata={"_tool_calls": [LLMToolCallContent(id ="call_114514",name="get_weather", parameters={"city": "北京"}).model_dump()]},
             ),
             MagicMock(
                 sender=c2c_sender,
-                content="",
+                content="<tool_result id=\"call_114514\" name=\"get_weather\" isError=\"false\" />",
                 timestamp=datetime.now(),
-                metadata={"_tool_results": [LLMToolResultContent(id="call_114514", name="get_weather", content=[tools.TextContent(text="今天的天气是晴天。")]).model_dump_json()]},
+                metadata={"_tool_results": [LLMToolResultContent(id="call_114514", name="get_weather", content=[tools.TextContent(text="今天的天气是晴天。")]).model_dump()]},
             )
         ]
 
         result = multi_decomposer.decompose(entries)
+        
+        assert len(result) == 2
 
         tool_call_message = result[0]
         tool_result_message = result[1]

@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, NamedTuple, Protocol, cast
 
-from kirara_ai.ioc.container import DependencyContainer
 from kirara_ai.llm.format.message import (LLMChatContentPartType, LLMChatImageContent, LLMChatMessage,
                                           LLMChatTextContent, LLMToolCallContent, LLMToolResultContent, RoleType)
 from kirara_ai.logger import get_logger
@@ -91,8 +90,8 @@ class TextContentStrategy:
 class MediaContentStrategy:
     """媒体内容解析策略"""
     
-    def __init__(self, container: DependencyContainer):
-        self.container = container
+    def __init__(self):
+        pass
     
     def extract_content(self, content: str, entry: MemoryEntry) -> List[ContentInfo]:
         media_parts = []
@@ -195,11 +194,10 @@ class ToolResultContentStrategy:
 class ContentParser:
     """内容解析器，整合各种内容处理策略"""
     
-    def __init__(self, container: DependencyContainer):
-        self.container = container
+    def __init__(self):
         self.strategies: Dict[str, ContentParseStrategy] = {
             "text": TextContentStrategy(),
-            "media": MediaContentStrategy(container),
+            "media": MediaContentStrategy(),
             "tool_call": ToolCallContentStrategy(),
             "tool_result": ToolResultContentStrategy()
         }
@@ -220,9 +218,9 @@ class ContentParser:
         if not content_infos:
             return []
         
-        messages = []
-        current_content = []
-        current_role = role
+        messages: List[LLMChatMessage] = []
+        current_content: List[LLMChatContentPartType] = []
+        current_role: RoleType = role
         
         for info in content_infos:
             strategy = self.strategies.get(info.content_type)
@@ -275,9 +273,8 @@ class ContentParser:
 class DefaultDecomposerStrategy:
     """默认解析策略，将记忆条目转换为文本格式"""
     
-    def __init__(self, container: DependencyContainer):
-        self.container = container
-        self.content_parser = ContentParser(container)
+    def __init__(self):
+        self.content_parser = ContentParser()
     
     def decompose(self, entries: List[MemoryEntry], context: Dict[str, Any]) -> List[ComposableMessageType]:
         if not entries:
@@ -336,9 +333,8 @@ class DefaultDecomposerStrategy:
 class MultiElementDecomposerStrategy:
     """多元素解析策略，将记忆条目还原为原始对象结构"""
     
-    def __init__(self, container: DependencyContainer):
-        self.container = container
-        self.content_parser = ContentParser(container)
+    def __init__(self):
+        self.content_parser = ContentParser()
     
     def decompose(self, entries: List[MemoryEntry], context: Dict[str, Any]) -> List[ComposableMessageType]:
         result: List[LLMChatMessage] = []
@@ -391,16 +387,20 @@ class MultiElementDecomposerStrategy:
         return result
     
     def _merge_adjacent_messages(self, messages: List[LLMChatMessage]) -> None:
-        """合并相邻的相同角色消息"""
+        """
+        合并相邻的相同角色消息
+        只处理 user 和 assistant 类型， 其他类型不处理
+        """
         i = 0
         while i < len(messages) - 1:
             current_msg = messages[i]
             next_msg = messages[i + 1]
             
-            if current_msg.role == next_msg.role:
+            if (current_msg.role == next_msg.role and 
+                current_msg.role in ["user", "assistant"]):
                 # 合并内容
                 current_msg.content.extend(next_msg.content)
                 # 删除下一个消息
                 messages.pop(i + 1)
             else:
-                i += 1 
+                i += 1

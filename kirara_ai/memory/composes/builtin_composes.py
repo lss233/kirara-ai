@@ -63,7 +63,7 @@ class DefaultMemoryDecomposer(MemoryDecomposer):
     def decompose(self, entries: List[MemoryEntry]) -> List[ComposableMessageType]:
         # 延迟初始化，确保 container 已被设置
         if self.strategy is None:
-            self.strategy = DefaultDecomposerStrategy(self.container)
+            self.strategy = DefaultDecomposerStrategy()
         
         # 使用上下文传递参数
         context = {
@@ -83,7 +83,7 @@ class MultiElementDecomposer(MemoryDecomposer):
     def decompose(self, entries: List[MemoryEntry]) -> List[Union[IMMessage, LLMChatMessage, Message, str]]:
         # 延迟初始化，确保 container 已被设置
         if self.strategy is None:
-            self.strategy = MultiElementDecomposerStrategy(self.container)
+            self.strategy = MultiElementDecomposerStrategy()
         
         # 使用上下文传递参数
         context = {
