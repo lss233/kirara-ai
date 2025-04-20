@@ -333,5 +333,5 @@ def test_chat_completion_with_tools_no_tool_calls(container):
     assert "iteration_msgs" in result
     assert isinstance(result["resp"], LLMChatResponse)
     assert isinstance(result["iteration_msgs"], list)
-    assert len(result["iteration_msgs"]) == 1  # 只有一条消息，没有工具调用
+    assert len(result["iteration_msgs"]) == 0  # 无消息，因为没有工具调用
     assert result["iteration_msgs"][0].tool_calls is None

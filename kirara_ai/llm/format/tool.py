@@ -24,8 +24,8 @@ class LLMToolResultContent(BaseModel):
     此部分 role 应该对应 "tool"
     """
     type: Literal["tool_result"] = "tool_result"
-    # 为与 gemini 兼容，此处 id 改为 Optional. 因为 gemini 回应中没有 call_id.
-    id: Optional[str] = None
+    # call id，对应 LLMToolCallContent 的 id
+    id: str
     name: str
     # 各家工具要求返回的content格式不同. 等待后续规范化。
     content: ToolResponseTypes
@@ -46,11 +46,10 @@ class Function(BaseModel):
             return v
 
 class ToolCall(BaseModel):
-    id: Optional[str] = None
+    # call id，对应 LLMToolCallContent 的 id
+    id: str
     # type这个字段目前不知道有什么用
     type: Optional[str] = None
-    # 此参数用于向后端传递响应的模型类型，方便后端tool_result返回类型正确的content字段
-    model: Optional[ModelTypes] = "openai"
     function: Function
     
 T = TypeVar('T', bound=Callable)

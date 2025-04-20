@@ -23,8 +23,8 @@ class LLMToolCallContent(BaseModel):
     此部分 role 应该归属于"assistant"
     """
     type: Literal["tool_call"] = "tool_call"
-    # call id，部分模型用此字段区分不同函数的调用
-    id: Optional[str] = None
+    # call id，部分模型用此字段区分不同函数的调用，若没有返回则由 Adapter 生成
+    id: str
     name: str
     # tool可能没有参数。
     parameters: Optional[dict] = None
