@@ -1,15 +1,7 @@
-import typing
+import json
 from typing import Any, Callable, Coroutine, Generic, List, Literal, Optional, TypeVar, Union
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
-
-if typing.TYPE_CHECKING:
-    from kirara_ai.llm.format.message import LLMToolResultContent
-
-import json
-from typing import Literal, Optional, Union
-
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 ModelTypes = Literal["openai", "gemini", "claude", "ollama"]
 
@@ -63,14 +55,14 @@ class ToolCall(BaseModel):
     
 T = TypeVar('T', bound=Callable)
 
-ToolInvokeFunc = Callable[[ToolCall], Coroutine[Any, Any, LLMToolResultContent]]
+ToolInvokeFunc = Callable[[ToolCall], Coroutine[Any, Any, "LLMToolResultContent"]]
 
 class CallableWrapper(Generic[T]):
     """包装可调用对象的类，在深拷贝时返回None"""
     def __init__(self, func: T):
         self.func = func
     
-    def __call__(self, *args, **kwargs) -> Coroutine[Any, Any, LLMToolResultContent]:
+    def __call__(self, *args, **kwargs) -> Coroutine[Any, Any, "LLMToolResultContent"]:
         return self.func(*args, **kwargs)
     
     def __deepcopy__(self, memo):

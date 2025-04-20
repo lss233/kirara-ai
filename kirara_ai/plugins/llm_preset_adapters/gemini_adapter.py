@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict
 import kirara_ai.llm.format.tool as tool
 from kirara_ai.llm.adapter import AutoDetectModelsProtocol, LLMBackendAdapter
 from kirara_ai.llm.format.message import (LLMChatContentPartType, LLMChatImageContent, LLMChatMessage,
-                                          LLMChatTextContent, LLMToolCallContent, LLMToolResultContent)
+                                          LLMChatTextContent, LLMToolCallContent, LLMToolResultContent, RoleType)
 from kirara_ai.llm.format.request import LLMChatRequest, Tool
 from kirara_ai.llm.format.response import LLMChatResponse, Message, ToolCall, Usage
 from kirara_ai.llm.format.tool import Function, ToolCall
@@ -258,7 +258,7 @@ class GeminiAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
             ),
             message=Message(
                 content=content,
-                role=role,
+                role=cast(RoleType, role),
                 finish_reason=response_data["candidates"][0].get("finishReason"),
                 # content格式转好直接用就行
                 tool_calls=resolve_function_call(content)

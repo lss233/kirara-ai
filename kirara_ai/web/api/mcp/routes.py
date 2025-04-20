@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+
 from quart import Blueprint, g, jsonify, request
 
 from kirara_ai.config.config_loader import CONFIG_FILE, ConfigLoader
