@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 
 
+from typing import Any, Dict, Optional, cast
+
 from quart import Blueprint, g, jsonify, request
 
 from kirara_ai.config.config_loader import CONFIG_FILE, ConfigLoader
@@ -431,3 +433,30 @@ async def get_all_tools():
     except Exception as e:
         logger.opt(exception=e).error("获取所有工具失败")
         return jsonify({"message": str(e)}), 500
+
+@mcp_bp.route("/servers/<server_id>/tools/call", methods=["POST"])
+@require_auth
+async def call_tool(server_id: str):
+    """调用工具"""
+    try:
+        data: Dict[str, str | Dict[str, Any]] = await request.get_json()
+        toolName: str = cast(str, data.get("toolName"))
+        params: Dict[str, Any] = cast(Dict[str, Any], data.get("params"))
+
+        # 从容器中获取MCP服务器管理器
+        manager: MCPServerManager = g.container.resolve(MCPServerManager)
+
+        # 获取服务器
+        server: Optional[MCPServer] = manager.get_server(server_id)
+        if not server:
+            return jsonify({"message": f"服务器 '{server_id}' 不存在"}), 404
+
+        # 获取工具
+        result = await server.call_tool(toolName, params)
+
+        # 返回响应
+        return jsonify({"result": result.model_dump()})
+    except Exception as e:
+        logger.opt(exception=e).error(f"调用工具 {toolName} 失败")
+        return jsonify({"message": str(e)}), 500
+
