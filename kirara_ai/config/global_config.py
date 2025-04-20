@@ -37,6 +37,7 @@ class MCPServerConfig(BaseModel):
     command: Optional[str] = Field(default="", description="服务器命令")
     env: Dict[str, str] = Field(default={}, description="环境变量")
     args: List[str] = Field(default_factory=list, description="服务器参数")
+    env: Dict[str, str] = Field(default_factory=dict, description="环境变量")
     connection_type: str = Field(default="stdio", description="连接类型: stdio/sse")
     enable: bool = Field(default=True, description="是否启用")
     

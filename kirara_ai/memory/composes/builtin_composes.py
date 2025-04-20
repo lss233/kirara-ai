@@ -92,4 +92,3 @@ class MultiElementDecomposer(MemoryDecomposer):
         
         # 使用策略解析记忆条目
         return self.strategy.decompose(entries, context)
-

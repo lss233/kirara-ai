@@ -47,7 +47,7 @@ async def convert_parts_factory(messages: LLMChatMessage, media_manager: MediaMa
             })
         return outputs
     else:
-        parts = []
+        parts: list[dict[str, Any]] = []
         elements = cast(list[LLMChatContentPartType], messages.content)
         tool_calls: list[dict[str, Any]] = []
         for element in elements:

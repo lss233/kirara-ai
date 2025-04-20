@@ -2,8 +2,12 @@ import asyncio
 from contextlib import AsyncExitStack
 from typing import Optional
 
+import anyio
+import anyio.lowlevel
 from mcp import ClientSession, StdioServerParameters, stdio_client, types
+from mcp.client.session import MessageHandlerFnT
 from mcp.client.sse import sse_client
+from mcp.shared.session import RequestResponder
 from pydantic import AnyUrl
 
 from kirara_ai.config.global_config import MCPServerConfig
@@ -24,7 +28,7 @@ class MCPServer:
     """
     session: Optional[ClientSession] = None
     state: MCPConnectionState = MCPConnectionState.DISCONNECTED
-    
+    message_handler: Optional[MessageHandlerFnT] = None
     def __init__(self, server_config: MCPServerConfig):
         """
         初始化 MCP 服务器客户端
@@ -39,7 +43,8 @@ class MCPServer:
         self._shutdown_event = asyncio.Event()
         self._connected_event = asyncio.Event()
         self._client = None
-        
+        self.message_handler = None
+
     async def connect(self):
         """
         连接到 MCP 服务器
@@ -131,7 +136,7 @@ class MCPServer:
                 self._client = stdio_client(StdioServerParameters(
                     command=self.server_config.command, 
                     args=self.server_config.args,
-                    env=self.server_config.env,
+                    env=self.server_config.env
                 ))
             elif self.server_config.connection_type == "sse":
                 if self.server_config.url is None:
@@ -142,7 +147,7 @@ class MCPServer:
             
             # 使用 exit_stack 管理资源
             read, write = await exit_stack.enter_async_context(self._client)
-            self.session = await exit_stack.enter_async_context(ClientSession(read, write))
+            self.session = await exit_stack.enter_async_context(ClientSession(read, write, message_handler=self.message_handler_callback))
             
             # 初始化会话
             await self.session.initialize()
@@ -208,7 +213,7 @@ class MCPServer:
     
     # 提示词相关方法
     
-    async def get_prompt(self, prompt_name: str, prompt_args: dict):
+    async def get_prompt(self, prompt_name: str, prompt_args: dict[str, str] | None = None) -> types.GetPromptResult:
         """
         获取指定提示词
         
@@ -222,24 +227,24 @@ class MCPServer:
         assert self.session is not None
         return await self.session.get_prompt(prompt_name, prompt_args)
     
-    async def list_prompts(self):
+    async def list_prompts(self) -> types.ListPromptsResult:
         """获取可用提示词列表"""
         assert self.session is not None
         return await self.session.list_prompts()
     
     # 资源相关方法
     
-    async def list_resources(self):
+    async def list_resources(self) -> types.ListResourcesResult:
         """获取可用资源列表"""
         assert self.session is not None
         return await self.session.list_resources()
     
-    async def list_resource_templates(self):
+    async def list_resource_templates(self) -> types.ListResourceTemplatesResult:
         """获取可用资源模板列表"""
         assert self.session is not None
         return await self.session.list_resource_templates()
     
-    async def read_resource(self, uri: str):
+    async def read_resource(self, uri: str) -> types.ReadResourceResult:
         """
         读取指定资源
         
@@ -252,7 +257,7 @@ class MCPServer:
         assert self.session is not None
         return await self.session.read_resource(AnyUrl(uri))
     
-    async def subscribe_resource(self, uri: str):
+    async def subscribe_resource(self, uri: str) -> types.EmptyResult:
         """
         订阅指定资源
         
@@ -265,7 +270,7 @@ class MCPServer:
         assert self.session is not None
         return await self.session.subscribe_resource(AnyUrl(uri))
     
-    async def unsubscribe_resource(self, uri: str):
+    async def unsubscribe_resource(self, uri: str) -> types.EmptyResult:
         """
         取消订阅指定资源
         
@@ -278,3 +283,57 @@ class MCPServer:
         assert self.session is not None
         return await self.session.unsubscribe_resource(AnyUrl(uri))
     
+    async def message_handler_callback(
+            self,
+            message: RequestResponder[types.ServerRequest, types.ClientResult]
+            | types.ServerNotification
+            | Exception,
+        ) -> None:
+        """
+        消息处理回调函数
+        Args:
+            message: 请求响应器或通知或异常
+        """
+        if self.message_handler is None:
+            logger.warning(f"MCP客户端接收到服务器{self.server_config.id}的通知，但未对其进行处理: {message}")
+            await anyio.lowlevel.checkpoint()
+            return
+        await self.message_handler(message)
+
+    async def list_client_roots_callback(self, ctx) -> types.ListRootsResult | types.ErrorData:
+        """
+        列出客户端允许的资源根目录
+
+        Args:
+
+        Returns:
+            types.ListRootsResult: 资源根目录列表
+        """
+        # 这个需要kirara-agent做出较大支持，webApi 中设定允许的资源根，最好弄个单独的目录。
+        # 文件根格式为file:///myResource/, 也可以为一个url.
+        raise NotImplementedError("list_client_roots_callback 未实现")
+
+    async def send_ping(self) -> None:
+        assert self.session is not None
+        await self.session.send_ping()
+
+    async def send_notification(self, notification: types.ClientNotification) -> None:
+        """
+        给服务器发消息，例如资源根更改
+        不使用 ClientSession 的 send_roots_list_changed，因为它只支持发送 RootsListChangedNotification。
+        这里使用其父对象 BaseSession 的 send_notification，其支持发送所有 ClientNotification。
+
+        Args:
+            notification: 客户端通知
+        """
+        assert self.session is not None
+        await self.session.send_notification(notification)
+
+    async def sampling_callback(self):
+        """
+        采样回调函数
+        """
+    async def logging_callback(self):
+        """
+        日志回调函数
+        """
