@@ -1,5 +1,5 @@
 from base64 import b64decode
-from typing import Annotated, Any, Dict, List, Optional
+from typing import Annotated, Any, Dict, List
 
 from mcp import types
 
@@ -78,7 +78,7 @@ class MCPToolProvider(Block):
             "tools": built_tools
         }
 
-    async def _create_tool_result(self, tool_id: Optional[str], tool_name: str, content: list[types.TextContent | types.ImageContent | types.EmbeddedResource]) -> LLMToolResultContent:
+    async def _create_tool_result(self, tool_id: str, tool_name: str, content: list[types.TextContent | types.ImageContent | types.EmbeddedResource]) -> LLMToolResultContent:
         """创建工具调用结果"""
         converted_content: List[tool.TextContent | tool.MediaContent] = []
         for item in content:

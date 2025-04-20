@@ -71,7 +71,7 @@ class TestDefaultMemoryComposer:
         assert isinstance(entry.timestamp, datetime)
     
     def test_compose_llm_tool_call_message(self, composer, c2c_sender):
-        chat_message = LLMChatMessage(role="assistant", content=[LLMChatTextContent(text="<think>我决定调用get_weather函数并传递city=北京。</think>"), LLMToolCallContent(name="get_weather", parameters={"city": "北京"})])
+        chat_message = LLMChatMessage(role="assistant", content=[LLMChatTextContent(text="<think>我决定调用get_weather函数并传递city=北京。</think>"), LLMToolCallContent(id = "call_114514", name="get_weather", parameters={"city": "北京"})])
 
         entry = composer.compose(c2c_sender, [chat_message])
 
@@ -79,7 +79,7 @@ class TestDefaultMemoryComposer:
         assert len(entry.metadata.get("_tool_calls", [])) > 0
 
     def test_compose_llm_tool_result_message(self, composer, c2c_sender):
-        chat_message = LLMChatMessage(role = "tool", content = [LLMToolResultContent(name = "get_weather", content = [tools.TextContent(text="今天的天气是晴天。")])])
+        chat_message = LLMChatMessage(role = "tool", content = [LLMToolResultContent(id = "call_114514", name = "get_weather", content = [tools.TextContent(text="今天的天气是晴天。")])])
 
         entry = composer.compose(c2c_sender, [chat_message])
 

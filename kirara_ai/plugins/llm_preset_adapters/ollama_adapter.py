@@ -140,8 +140,7 @@ class OllamaAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
         data = {k: v for k, v in data.items() if v is not None}
         if "options" in data:
             data["options"] = {
-                # type: ignore
-                k: v for k, v in data["options"].items() if v is not None
+                k: v for k, v in data["options"].items() if v is not None # type: ignore
             }
 
         response = requests.post(api_url, json=data, headers=headers)
