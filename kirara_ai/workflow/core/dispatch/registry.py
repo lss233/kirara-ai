@@ -11,7 +11,7 @@ from .models.dispatch_rules import CombinedDispatchRule, RuleGroup, SimpleDispat
 from .rules.base import DispatchRule
 from .rules.message_rules import BotMentionMatchRule, KeywordMatchRule, PrefixMatchRule, RegexMatchRule
 from .rules.sender_rules import ChatSenderMatchRule, ChatSenderMismatchRule, ChatTypeMatchRule
-from .rules.system_rules import FallbackMatchRule, RandomChanceMatchRule
+from .rules.system_rules import FallbackMatchRule, IMInstanceMatchRule, RandomChanceMatchRule
 
 
 class DispatchRuleRegistry:
@@ -181,4 +181,5 @@ DispatchRule.register_rule_type(RandomChanceMatchRule)
 DispatchRule.register_rule_type(ChatSenderMatchRule)
 DispatchRule.register_rule_type(ChatSenderMismatchRule)
 DispatchRule.register_rule_type(ChatTypeMatchRule)
+DispatchRule.register_rule_type(IMInstanceMatchRule)
 DispatchRule.register_rule_type(FallbackMatchRule)

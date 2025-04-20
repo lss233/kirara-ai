@@ -34,7 +34,7 @@ class DispatchRule(ABC):
         self.workflow_id: str = workflow_id
 
     @abstractmethod
-    def match(self, message: IMMessage) -> bool:
+    def match(self, message: IMMessage, container: DependencyContainer) -> bool:
         """判断消息是否匹配该规则。"""
 
     def get_workflow(self, container: DependencyContainer) -> Workflow:

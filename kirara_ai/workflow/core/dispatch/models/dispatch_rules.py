@@ -31,7 +31,7 @@ class CombinedDispatchRule(BaseModel):
     rule_groups: List[RuleGroup]  # 规则组之间是 AND 关系
     metadata: Dict[str, Any] = {}
 
-    def match(self, message: IMMessage, workflow_registry: WorkflowRegistry) -> bool:
+    def match(self, message: IMMessage, workflow_registry: WorkflowRegistry, container: DependencyContainer) -> bool:
         """
         判断消息是否匹配该规则。
         规则组之间是 AND 关系，规则组内部根据 operator 决定是 AND 还是 OR 关系。
@@ -60,7 +60,7 @@ class CombinedDispatchRule(BaseModel):
                         workflow_registry,
                         self.workflow_id,
                     )
-                    rule_results.append(rule_instance.match(message))
+                    rule_results.append(rule_instance.match(message, container))
                 except Exception as e:
                     # 如果规则创建或匹配过程出错，视为不匹配
                     logger.error(f"Rule {rule.type} from config {rule.config} creation or matching failed: {e}")

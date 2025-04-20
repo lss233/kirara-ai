@@ -4,6 +4,7 @@ from pydantic import Field
 
 from kirara_ai.im.message import IMMessage
 from kirara_ai.im.sender import ChatType
+from kirara_ai.ioc.container import DependencyContainer
 from kirara_ai.workflow.core.workflow.registry import WorkflowRegistry
 
 from .base import DispatchRule, RuleConfig
@@ -31,7 +32,7 @@ class ChatSenderMatchRule(DispatchRule):
         super().__init__(workflow_registry, workflow_id)
         self.sender_id = sender_id
         self.sender_group = sender_group
-    def match(self, message: IMMessage) -> bool:
+    def match(self, message: IMMessage, container: DependencyContainer) -> bool:
         # 如果设置了群组ID，则必须匹配
         if self.sender_group and message.sender.group_id != self.sender_group:
             return False
