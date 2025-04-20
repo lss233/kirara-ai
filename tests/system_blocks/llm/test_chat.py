@@ -47,7 +47,6 @@ def get_llm_tool_calls() -> list[ToolCall]:
     return [
         ToolCall(
             id = "call_e33147bcb72525ed",
-            model = "openai",
             function = Function(
                 name="get_weather",
                 arguments={"location": "San Francisco, CA"}
@@ -81,7 +80,6 @@ class MockLLMWithToolCalls:
         
         # 第一次调用返回工具调用
         if self.with_tool_calls and self.call_count == 1:
-            print("返回工具调用")
             return LLMChatResponse(
                 message=Message(
                     role="assistant",

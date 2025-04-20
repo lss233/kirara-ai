@@ -126,12 +126,17 @@ class MCPServer:
         try:
             # 初始化连接
             if self.server_config.connection_type == "stdio":
+                if self.server_config.command is None:
+                    raise ValueError("stdio 连接类型需要提供命令")
                 self._client = stdio_client(StdioServerParameters(
                     command=self.server_config.command, 
-                    args=self.server_config.args
+                    args=self.server_config.args,
+                    env=self.server_config.env,
                 ))
             elif self.server_config.connection_type == "sse":
-                self._client = sse_client(self.server_config.url)
+                if self.server_config.url is None:
+                    raise ValueError("sse 连接类型需要提供 url")
+                self._client = sse_client(self.server_config.url, headers=self.server_config.headers)
             else:
                 raise ValueError(f"不支持的服务器连接类型: {self.server_config.connection_type}")
             
@@ -234,42 +239,42 @@ class MCPServer:
         assert self.session is not None
         return await self.session.list_resource_templates()
     
-    async def read_resource(self, resource_name: str):
+    async def read_resource(self, uri: str):
         """
         读取指定资源
         
         Args:
-            resource_name: 资源名称
+            uri: 资源名称
             
         Returns:
             资源内容
         """
         assert self.session is not None
-        return await self.session.read_resource(AnyUrl(resource_name))
+        return await self.session.read_resource(AnyUrl(uri))
     
-    async def subscribe_resource(self, resource_name: str):
+    async def subscribe_resource(self, uri: str):
         """
         订阅指定资源
         
         Args:
-            resource_name: 资源名称
+            uri: 资源名称
             
         Returns:
             订阅结果
         """
         assert self.session is not None
-        return await self.session.subscribe_resource(AnyUrl(resource_name))
+        return await self.session.subscribe_resource(AnyUrl(uri))
     
-    async def unsubscribe_resource(self, resource_name: str):
+    async def unsubscribe_resource(self, uri: str):
         """
         取消订阅指定资源
         
         Args:
-            resource_name: 资源名称
+            uri: 资源名称
             
         Returns:
             取消订阅结果
         """
         assert self.session is not None
-        return await self.session.unsubscribe_resource(AnyUrl(resource_name))
+        return await self.session.unsubscribe_resource(AnyUrl(uri))
     
