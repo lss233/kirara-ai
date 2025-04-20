@@ -1,10 +1,11 @@
 import asyncio
-import anyio
 from contextlib import AsyncExitStack
 from typing import Optional
 
+import anyio
 import anyio.lowlevel
 from mcp import ClientSession, StdioServerParameters, stdio_client, types
+from mcp.client.session import MessageHandlerFnT
 from mcp.client.sse import sse_client
 from mcp.shared.session import RequestResponder
 from pydantic import AnyUrl
@@ -12,7 +13,6 @@ from pydantic import AnyUrl
 from kirara_ai.config.global_config import MCPServerConfig
 from kirara_ai.logger import get_logger
 from kirara_ai.mcp.models import MCPConnectionState
-from .manager import MCPServerManager
 
 logger = get_logger("MCP.Server")
 
@@ -28,8 +28,8 @@ class MCPServer:
     """
     session: Optional[ClientSession] = None
     state: MCPConnectionState = MCPConnectionState.DISCONNECTED
-    manager: MCPServerManager
-    def __init__(self, server_config: MCPServerConfig, manager: MCPServerManager):
+    message_handler: Optional[MessageHandlerFnT] = None
+    def __init__(self, server_config: MCPServerConfig):
         """
         初始化 MCP 服务器客户端
         
@@ -42,8 +42,8 @@ class MCPServer:
         self._lifecycle_task = None
         self._shutdown_event = asyncio.Event()
         self._connected_event = asyncio.Event()
-        self.manager = manager
         self._client = None
+        self.message_handler = None
 
     async def connect(self):
         """
@@ -213,7 +213,7 @@ class MCPServer:
     
     # 提示词相关方法
     
-    async def get_prompt(self, prompt_name: str, prompt_args: dict):
+    async def get_prompt(self, prompt_name: str, prompt_args: dict[str, str] | None = None) -> types.GetPromptResult:
         """
         获取指定提示词
         
@@ -227,24 +227,24 @@ class MCPServer:
         assert self.session is not None
         return await self.session.get_prompt(prompt_name, prompt_args)
     
-    async def list_prompts(self):
+    async def list_prompts(self) -> types.ListPromptsResult:
         """获取可用提示词列表"""
         assert self.session is not None
         return await self.session.list_prompts()
     
     # 资源相关方法
     
-    async def list_resources(self):
+    async def list_resources(self) -> types.ListResourcesResult:
         """获取可用资源列表"""
         assert self.session is not None
         return await self.session.list_resources()
     
-    async def list_resource_templates(self):
+    async def list_resource_templates(self) -> types.ListResourceTemplatesResult:
         """获取可用资源模板列表"""
         assert self.session is not None
         return await self.session.list_resource_templates()
     
-    async def read_resource(self, uri: str):
+    async def read_resource(self, uri: str) -> types.ReadResourceResult:
         """
         读取指定资源
         
@@ -257,7 +257,7 @@ class MCPServer:
         assert self.session is not None
         return await self.session.read_resource(AnyUrl(uri))
     
-    async def subscribe_resource(self, uri: str):
+    async def subscribe_resource(self, uri: str) -> types.EmptyResult:
         """
         订阅指定资源
         
@@ -270,7 +270,7 @@ class MCPServer:
         assert self.session is not None
         return await self.session.subscribe_resource(AnyUrl(uri))
     
-    async def unsubscribe_resource(self, uri: str):
+    async def unsubscribe_resource(self, uri: str) -> types.EmptyResult:
         """
         取消订阅指定资源
         
@@ -285,37 +285,22 @@ class MCPServer:
     
     async def message_handler_callback(
             self,
-            req: RequestResponder[types.ServerRequest, types.ClientResult]
+            message: RequestResponder[types.ServerRequest, types.ClientResult]
             | types.ServerNotification
             | Exception,
         ) -> None:
         """
-        按照sdk写法添加了针对Server通知的处理
-        虽然ClientSession中有只处理SeverNotification的函数，但是sdk没有暴露接收这个函数的参数。
-        所以只能用这个更大范围的。除非你重写ClientSession._received_notification函数。
-        或者能水个pr?
-
+        消息处理回调函数
         Args:
-            req: 请求响应器或通知或异常
+            message: 请求响应器或通知或异常
         """
-        # ServerNotification是一个联合类型，自己查看有哪些
-        if isinstance(req, types.ToolListChangedNotification):
-            # 处理工具变更信息
-            self.manager._update_tools_cache(self.server_config.id)
-        elif isinstance(req, types.PromptListChangedNotification):
-            # 处理提示词变更信息
-            self.manager._update_prompts_cache(self.server_config.id)
-        elif isinstance(req, types.ResourceListChangedNotification):
-            # 处理资源变更信息
-            self.manager._update_resources_cache(self.server_config.id)
-        else:
-            # 处理其他通知
-            logger.warning(f"MCP客户端接收到服务器{self.server_config.id}的通知，但未对其进行处理: {req}")
+        if self.message_handler is None:
+            logger.warning(f"MCP客户端接收到服务器{self.server_config.id}的通知，但未对其进行处理: {message}")
+            await anyio.lowlevel.checkpoint()
+            return
+        await self.message_handler(message)
 
-        # 交还控制权给loop
-        anyio.lowlevel.checkpoint()
-
-    async def list_client_roots_callback(ctx) -> types.ListRootsResult:
+    async def list_client_roots_callback(self, ctx) -> types.ListRootsResult | types.ErrorData:
         """
         列出客户端允许的资源根目录
 
@@ -326,17 +311,17 @@ class MCPServer:
         """
         # 这个需要kirara-agent做出较大支持，webApi 中设定允许的资源根，最好弄个单独的目录。
         # 文件根格式为file:///myResource/, 也可以为一个url.
-        pass
+        raise NotImplementedError("list_client_roots_callback 未实现")
 
     async def send_ping(self) -> None:
+        assert self.session is not None
         await self.session.send_ping()
 
     async def send_notification(self, notification: types.ClientNotification) -> None:
         """
         给服务器发消息，例如资源根更改
-        不使用ClientSession的send_roots_list_changed，因为它只支持发送RootsListChangedNotification。
-        这里使用其父对象BaseSession的send_notification, 其支持发送所有ClientNotification。
-        ps: 这难道不是双工吗？
+        不使用 ClientSession 的 send_roots_list_changed，因为它只支持发送 RootsListChangedNotification。
+        这里使用其父对象 BaseSession 的 send_notification，其支持发送所有 ClientNotification。
 
         Args:
             notification: 客户端通知
@@ -344,16 +329,11 @@ class MCPServer:
         assert self.session is not None
         await self.session.send_notification(notification)
 
-    async def sampling_callback():
+    async def sampling_callback(self):
         """
         采样回调函数
-        写这只是为了提醒你支持这个回调函数，现在不实现。等出现未知bug就应该使用这个了。相当于mcp debug？
         """
-        pass
-    async def logging_callback():
+    async def logging_callback(self):
         """
         日志回调函数
-        写这只是为了提醒你支持这个回调函数，现在不实现。
-        ps: 居然支持自定义日志
         """
-        pass

@@ -460,3 +460,45 @@ async def call_tool(server_id: str):
         logger.opt(exception=e).error(f"调用工具 {toolName} 失败")
         return jsonify({"message": str(e)}), 500
 
+@mcp_bp.route("/servers/<server_id>/prompts", methods=["GET"])
+@require_auth
+async def get_server_prompts(server_id: str):
+    """获取MCP服务器提供的提示词列表"""
+    try:
+        # 从容器中获取MCP服务器管理器
+        manager: MCPServerManager = g.container.resolve(MCPServerManager)
+        
+        server = manager.get_server(server_id)
+        if not server:
+            return jsonify({"message": f"服务器 {server_id} 不存在"}), 404
+        
+        prompts = await manager.get_prompt_list(server_id)
+        if prompts is None:
+            return jsonify({"message": f"服务器 {server_id} 未连接"}), 404
+        
+        return jsonify(prompts)
+    except Exception as e:
+        logger.opt(exception=e).error(f"获取MCP服务器 {server_id} 提示词列表失败")
+        return jsonify({"message": str(e)}), 500
+
+@mcp_bp.route("/servers/<server_id>/resources", methods=["GET"])
+@require_auth
+async def get_server_resources(server_id: str):
+    """获取MCP服务器提供的资源列表"""
+    try:
+        # 从容器中获取MCP服务器管理器
+        manager: MCPServerManager = g.container.resolve(MCPServerManager)
+
+        # 获取服务器
+        server = manager.get_server(server_id)
+        if not server:
+            return jsonify({"message": f"服务器 {server_id} 不存在"}), 404
+
+        resources = await manager.get_resource_list(server_id)
+        if resources is None:
+            return jsonify({"message": f"服务器 {server_id} 未连接"}), 404
+        
+        return jsonify(resources)
+    except Exception as e:
+        logger.opt(exception=e).error(f"获取MCP服务器 {server_id} 资源列表失败")
+        return jsonify({"message": str(e)}), 500

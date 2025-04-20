@@ -7,7 +7,6 @@ from typing_extensions import Self
 from .tool import LLMToolResultContent
 
 RoleType = Literal["system", "user", "assistant"]
-ResultTypes = Union[TextContent, ImageContent, EmbeddedResource]
 
 class LLMChatTextContent(BaseModel):
     type: Literal["text"] = "text"
