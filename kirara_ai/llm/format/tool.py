@@ -40,10 +40,7 @@ class Function(BaseModel):
     @classmethod
     @field_validator("arguments", mode="before")
     def convert_arguments(cls, v: Optional[Union[str, dict]]) -> Optional[dict]:
-        if isinstance(v, str):
-            return json.loads(v)
-        else:
-            return v
+        return json.loads(v) if isinstance(v, str) else v
 
 class ToolCall(BaseModel):
     # call id，对应 LLMToolCallContent 的 id

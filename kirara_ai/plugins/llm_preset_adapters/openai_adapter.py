@@ -39,7 +39,7 @@ async def convert_parts_factory(messages: LLMChatMessage, media_manager: MediaMa
                 else:
                     raise ValueError(f"Unsupported content type: {type(content)}")
             if element.isError:
-                output = f"Error: {element.name}\n" + output
+                output = f"Error: {element.name}\n{output}"
             outputs.append({
                 "role": "tool",
                 "tool_call_id": element.id,

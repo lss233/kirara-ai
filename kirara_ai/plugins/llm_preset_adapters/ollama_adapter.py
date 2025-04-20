@@ -90,7 +90,7 @@ def convert_tool_result_message(msg: LLMChatMessage, media_manager: MediaManager
             elif isinstance(item, tools.MediaContent):
                 output += f"<media id={item.media_id} mime_type={item.mime_type} />\n"
         if element.isError:
-            output = f"Error: {element.name}\n" + output
+            output = f"Error: {element.name}\n{output}"
         messages.append({"role": "tool", "content": output,
                         "tool_call_id": element.id})
     return messages

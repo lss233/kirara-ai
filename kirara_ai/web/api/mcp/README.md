@@ -47,6 +47,7 @@ POST /mcp/servers
 {
   "page": 1,
   "page_size": 20,
+  "page_size": 20,
   "connection_type": null,
   "status": null,
   "query": null
