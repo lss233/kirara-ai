@@ -5,7 +5,6 @@ from typing import Any, Dict, List, cast
 import aiohttp
 import requests
 from pydantic import BaseModel, ConfigDict
-from mcp.types import TextContent, ImageContent, EmbeddedResource
 
 import kirara_ai.llm.format.tool as tools
 from kirara_ai.llm.adapter import AutoDetectModelsProtocol, LLMBackendAdapter
@@ -48,7 +47,7 @@ async def convert_parts_factory(messages: LLMChatMessage, media_manager: MediaMa
             })
         return outputs
     else:
-        parts = []
+        parts: list[dict[str, Any]] = []
         elements = cast(list[LLMChatContentPartType], messages.content)
         tool_calls: list[dict[str, Any]] = []
         for element in elements:

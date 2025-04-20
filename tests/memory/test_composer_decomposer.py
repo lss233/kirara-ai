@@ -144,8 +144,9 @@ class TestMultiElementDecomposer:
         ]
 
         result = multi_decomposer.decompose(entries)
-
+        
         assert len(result) == 2
+        
         tool_call_message = result[0]
         tool_result_message = result[1]
 
