@@ -157,7 +157,7 @@ class BlockRegistry:
                 label=input_info.label,
                 description=input_info.description,
                 type=type_name,
-                required=True,
+                required=not input_info.nullable,
                 default=input_info.default if hasattr(input_info, "default") else None,
             )
 

@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from kirara_ai.config.global_config import GlobalConfig
+from kirara_ai.im.sender import ChatSender, ChatType
 from kirara_ai.ioc.container import DependencyContainer
 from kirara_ai.memory.composes import MemoryComposer, MemoryDecomposer
 from kirara_ai.memory.entry import MemoryEntry
@@ -60,7 +61,10 @@ def memory_manager(container):
 def test_entry():
     """创建测试记忆条目"""
     return MemoryEntry(
-        sender="user1", content="test message", timestamp=datetime.now(), metadata={}
+        sender=ChatSender(user_id="user1", chat_type=ChatType.C2C, display_name="Test User"),
+        content="test message",
+        timestamp=datetime.now(),
+        metadata={}
     )
 
 
@@ -124,7 +128,7 @@ class TestMemoryManager:
         # 存储3条记录
         for i in range(3):
             entry = MemoryEntry(
-                sender=f"user{i}",
+                sender=ChatSender(user_id=f"user{i}", chat_type=ChatType.C2C, display_name="Test User"),
                 content=f"message {i}",
                 timestamp=datetime.now(),
                 metadata={},
@@ -154,7 +158,10 @@ class TestMemoryManager:
         """测试清空记忆"""
         # 存储一些数据
         entry = MemoryEntry(
-            sender="user1", content="test", timestamp=datetime.now(), metadata={}
+            sender=ChatSender(user_id="user1", chat_type=ChatType.C2C, display_name="Test User"),
+            content="test",
+            timestamp=datetime.now(),
+            metadata={}
         )
         memory_manager.store(mock_scope, entry)
 

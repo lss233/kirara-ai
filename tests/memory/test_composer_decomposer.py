@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+import kirara_ai.llm.format.tool as tools
 from kirara_ai.im.message import IMMessage, TextMessage
 from kirara_ai.im.sender import ChatSender
 from kirara_ai.llm.format.message import LLMChatMessage, LLMChatTextContent, LLMToolCallContent, LLMToolResultContent
@@ -62,7 +63,8 @@ class TestDefaultMemoryComposer:
         chat_message = LLMChatMessage(role="assistant", content=[LLMChatTextContent(text="test response")])
 
         entry = composer.compose(c2c_sender, [chat_message])
-
+        
+        assert isinstance(chat_message.content[0], LLMChatTextContent)
         assert f"你回答: \n{chat_message.content[0].text}" in entry.content
         assert isinstance(entry.timestamp, datetime)
     
@@ -77,7 +79,7 @@ class TestDefaultMemoryComposer:
         assert entry.metadata.get("_tool_calls", None) is not None
 
     def test_compose_llm_tool_result_message(self, composer, c2c_sender):
-        chat_message = LLMChatMessage(role = "tool", content = [LLMToolResultContent(name = "get_weather", content = "今天的天气是晴天。")])
+        chat_message = LLMChatMessage(role = "tool", content = [LLMToolResultContent(name = "get_weather", content = [tools.TextContent(text="今天的天气是晴天。")])])
 
         entry = composer.compose(c2c_sender, [chat_message])
 
@@ -138,7 +140,7 @@ class TestMultiElementDecomposer:
                 sender=c2c_sender,
                 content="",
                 timestamp=datetime.now(),
-                metadata={"_tool_results": [LLMToolResultContent(id="call_114514", name="get_weather", content="今天的天气是晴天。").model_dump_json()]},
+                metadata={"_tool_results": [LLMToolResultContent(id="call_114514", name="get_weather", content=[tools.TextContent(text="今天的天气是晴天。")]).model_dump_json()]},
             )
         ]
 

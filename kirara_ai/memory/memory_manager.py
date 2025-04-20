@@ -132,6 +132,8 @@ class MemoryManager(MediaReferenceProvider[List[MemoryEntry]]):
         """
         scope_key = scope.get_scope_key(sender)
         # 移除媒体引用
+        if scope_key not in self.memories:
+            return
         self._remove_media_references(self.memories[scope_key], [], scope_key)
         # 清空内存中的记录
         self.memories[scope_key] = []

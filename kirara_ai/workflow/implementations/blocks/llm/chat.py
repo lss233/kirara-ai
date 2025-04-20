@@ -202,7 +202,7 @@ class ChatCompletionWithTools(Block):
     }
     outputs = {
         "resp": Output("resp", "LLM 消息回应", LLMChatResponse, "模型返回给用户的消息"),
-        "iteration_msgs": Output("iteration_msgs", "迭代消息", List[LLMChatMessage], "迭代过程中产生的所有消息，可以用记忆存储")
+        "iteration_msgs": Output("iteration_msgs", "中间步骤消息", List[ComposableMessageType], "迭代过程中产生的所有消息，可以用记忆存储")
     }
 
     container: DependencyContainer
@@ -257,8 +257,8 @@ class ChatCompletionWithTools(Block):
 
             response: LLMChatResponse = llm.chat(request_body)
             iter_count += 1
-            iteration_msgs.append(response.message)
             if response.message.tool_calls:
+                iteration_msgs.append(response.message)
                 self.logger.debug("Tool calls found, attempt to invoke tools")
                 for tool_call in response.message.tool_calls:
                     actual_tool = tools_mapping.get(tool_call.function.name)
