@@ -79,8 +79,11 @@ class ChatMemoryStore(Block):
     inputs = {
         "user_msg": Input("user_msg", "用户消息", IMMessage, "用户消息", nullable=True),
         "llm_resp": Input(
-            "llm_resp", "LLM 响应", LLMChatResponse, "LLM 响应", nullable=True
+            "llm_resp", "LLM 回复", LLMChatResponse, "LLM 回复", nullable=True
         ),
+        "middle_steps": Input(
+            "middle_steps", "中间步骤消息", List[ComposableMessageType], "中间步骤消息", nullable=True
+        )
     }
     outputs = {}
     container: DependencyContainer
@@ -103,6 +106,7 @@ class ChatMemoryStore(Block):
         self,
         user_msg: Optional[IMMessage] = None,
         llm_resp: Optional[LLMChatResponse] = None,
+        middle_steps: Optional[List[ComposableMessageType]] = None,
     ) -> Dict[str, Any]:
         self.memory_manager = self.container.resolve(MemoryManager)
 
@@ -123,6 +127,10 @@ class ChatMemoryStore(Block):
             composed_messages: List[ComposableMessageType] = []
         else:
             composed_messages = [user_msg]
+            
+        if middle_steps is not None:
+            composed_messages.extend(middle_steps)
+
         if llm_resp is not None:
             if llm_resp.message:
                 composed_messages.append(llm_resp.message)

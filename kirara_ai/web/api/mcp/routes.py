@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+
 from quart import Blueprint, g, jsonify, request
 
 from kirara_ai.config.config_loader import CONFIG_FILE, ConfigLoader
@@ -289,6 +290,15 @@ async def update_server(server_id: str):
 
         if request_data.connection_type is not None:
             server_config.connection_type = request_data.connection_type
+            
+        if request_data.url is not None:
+            server_config.url = request_data.url
+
+        if request_data.headers is not None:
+            server_config.headers = request_data.headers
+            
+        if request_data.env is not None:
+            server_config.env = request_data.env
 
         # 保存配置
         ConfigLoader.save_config_with_backup(CONFIG_FILE, config)
@@ -412,8 +422,8 @@ async def get_all_tools():
         for name, tool_info in tools.items():
             tool_list.append(MCPToolInfo(
                 name=name,
-                description=tool_info.get("description", ""),
-                input_schema=tool_info.get("input_schema", {})
+                description=tool_info.tool_info.description,
+                input_schema=tool_info.tool_info.inputSchema
             ))
 
         # 返回响应

@@ -54,7 +54,7 @@ class TelegramAdapter(IMAdapter, UserProfileAdapter, EditStateAdapter, BotProfil
             CommandHandler("start", self.command_start))
         self.application.add_handler(
             MessageHandler(
-                filters.TEXT | filters.VOICE | filters.PHOTO, self.handle_message
+                filters.TEXT | filters.VOICE | filters.PHOTO | filters.VIDEO, self.handle_message
             )
         )
         self.logger = get_logger("Telegram-Adapter")
@@ -224,6 +224,13 @@ class TelegramAdapter(IMAdapter, UserProfileAdapter, EditStateAdapter, BotProfil
                 await self.application.bot.send_voice(
                     chat_id=chat_id, voice=await element.get_data(), parse_mode="MarkdownV2"
                 )
+            elif isinstance(element, VideoMessage):
+                await self.application.bot.send_chat_action(
+                    chat_id=chat_id, action="upload_video"
+                )
+                await self.application.bot.send_video(
+                    chat_id=chat_id, video=await element.get_data(), parse_mode="MarkdownV2"
+                )    
 
     async def start(self):
         """启动 Bot"""

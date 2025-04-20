@@ -74,11 +74,11 @@ class MCPServerManager:
     def get_statistics(self) -> Dict[str, int]:
         """获取MCP服务器统计信息"""
         total = len(self.servers)
-        stdio = sum(1 for s in self.servers.values() if s.server_config.connection_type == "stdio")
-        sse = sum(1 for s in self.servers.values() if s.server_config.connection_type == "sse")
-        connected = sum(1 for s in self.servers.values() if s.state == MCPConnectionState.CONNECTED)
-        disconnected = sum(1 for s in self.servers.values() if s.state == MCPConnectionState.DISCONNECTED)
-        error = sum(1 for s in self.servers.values() if s.state == MCPConnectionState.ERROR)
+        stdio = sum(bool(s.server_config.connection_type == "stdio") for s in self.servers.values())
+        sse = sum(bool(s.server_config.connection_type == "sse") for s in self.servers.values())
+        connected = sum(bool(s.state == MCPConnectionState.CONNECTED) for s in self.servers.values())
+        disconnected = sum(bool(s.state == MCPConnectionState.DISCONNECTED) for s in self.servers.values())
+        error = sum(bool(s.state == MCPConnectionState.ERROR) for s in self.servers.values())
         
         return {
             "total": total,

@@ -1,6 +1,6 @@
 import asyncio
 import base64
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import aiohttp
 import requests
@@ -12,11 +12,12 @@ from kirara_ai.llm.adapter import AutoDetectModelsProtocol, LLMBackendAdapter
 from kirara_ai.llm.format.message import (LLMChatContentPartType, LLMChatImageContent, LLMChatMessage,
                                           LLMChatTextContent, LLMToolCallContent, LLMToolResultContent)
 from kirara_ai.llm.format.request import LLMChatRequest, Tool
-from kirara_ai.llm.format.response import LLMChatResponse, Message, ToolCall, Usage
-from kirara_ai.llm.format.tool import Function, ToolCall
+from kirara_ai.llm.format.response import LLMChatResponse, Message, Usage
 from kirara_ai.logger import get_logger
 from kirara_ai.media.manager import MediaManager
 from kirara_ai.tracing.decorator import trace_llm_chat
+
+from .utils import generate_tool_call_id, pick_tool_calls
 
 
 class ClaudeConfig(BaseModel):
@@ -46,29 +47,6 @@ async def convert_llm_chat_message_to_claude_message(messages: list[LLMChatMessa
             "content": parts
         })
     return content
-
-
-def resolve_tool_calls(content: list[dict]) -> Optional[list[ToolCall]]:
-    tool_calls = []
-    for part in content:
-        if part.get("type") == "tool_use":
-            tool_calls.append(
-                ToolCall(
-                    model="claude",
-                    id=part.get("id"),
-                    type=part.get("type"),
-                    function=Function(
-                        name=part.get("name", ""),
-                        arguments=part.get("input", None),
-                    )
-                )
-            )
-    # 当tool_calls为空时，返回None
-    if tool_calls:
-        return tool_calls
-    else:
-        return None
-
 
 def convert_tools_to_claude_format(tools: list[Tool]) -> list[dict]:
     # 使用 pydantic 的 model_dump 方法，高级排除项`exclude`排除 openai 专属项
@@ -157,8 +135,7 @@ class ClaudeAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
                 content.append(LLMChatImageContent(media_id=media))
             elif res["type"] == "tool_use":
                 # tool_call 时 只会额外返回一个 text 的深度思考。
-                content.append(LLMToolCallContent(id=res.get("id", None), name=res["name"], parameters=res.get("input", None)))
-        
+                content.append(LLMToolCallContent(id=res.get("id", generate_tool_call_id(res["name"])), name=res["name"], parameters=res.get("input", None)))
         usage_data = response_data.get("usage", {})
         input_tokens = usage_data.get("input_tokens", 0)
         output_tokens = usage_data.get("output_tokens", 0)
@@ -175,7 +152,7 @@ class ClaudeAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
                 role=response_data.get("role", "assistant"),
                 finish_reason=response_data.get("stop_reason", "stop"),
                 # claude tool_call混合在content字段中，需要提取
-                tool_calls=resolve_tool_calls(response_data["content"]),
+                tool_calls=pick_tool_calls(content),
             )
         )
 

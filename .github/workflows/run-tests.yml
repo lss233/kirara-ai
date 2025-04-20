@@ -47,6 +47,8 @@ jobs:
     - name: Run tests on Windows
       if: matrix.os == 'windows-latest'
       run: |
+        set PYTHONIOENCODING=utf-8
+        set PYTHONLEGACYWINDOWSSTDIO=utf-8
         python -m pip install -e .
         python -m pip install pytest
         chcp 65001

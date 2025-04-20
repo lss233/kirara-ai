@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+import kirara_ai.llm.format.tool as tools
 from kirara_ai.im.message import IMMessage, TextMessage
 from kirara_ai.im.sender import ChatSender
 from kirara_ai.llm.format.message import LLMChatMessage, LLMChatTextContent, LLMToolCallContent, LLMToolResultContent
@@ -11,8 +12,10 @@ from kirara_ai.memory.composes import DefaultMemoryComposer, DefaultMemoryDecomp
 
 @pytest.fixture
 def composer():
-    return DefaultMemoryComposer()
-
+    container = MagicMock()
+    composer = DefaultMemoryComposer()
+    composer.container = container
+    return composer
 
 @pytest.fixture
 def decomposer():
@@ -62,27 +65,25 @@ class TestDefaultMemoryComposer:
         chat_message = LLMChatMessage(role="assistant", content=[LLMChatTextContent(text="test response")])
 
         entry = composer.compose(c2c_sender, [chat_message])
-
+        
+        assert isinstance(chat_message.content[0], LLMChatTextContent)
         assert f"你回答: \n{chat_message.content[0].text}" in entry.content
         assert isinstance(entry.timestamp, datetime)
     
     def test_compose_llm_tool_call_message(self, composer, c2c_sender):
-        chat_message = LLMChatMessage(role="assistant", content=[LLMChatTextContent(text="<think>我决定调用get_weather函数并传递city=北京。</think>"), LLMToolCallContent(name="get_weather", parameters={"city": "北京"})])
+        chat_message = LLMChatMessage(role="assistant", content=[LLMChatTextContent(text="<think>我决定调用get_weather函数并传递city=北京。</think>"), LLMToolCallContent(id = "call_114514", name="get_weather", parameters={"city": "北京"})])
 
         entry = composer.compose(c2c_sender, [chat_message])
 
-        # 判断其是否为空字符串
-        assert entry.content == ""
         # 是否metadata中 _tool_calls 字段为非空列表
-        assert entry.metadata.get("_tool_calls", None) is not None
+        assert len(entry.metadata.get("_tool_calls", [])) > 0
 
     def test_compose_llm_tool_result_message(self, composer, c2c_sender):
-        chat_message = LLMChatMessage(role = "tool", content = [LLMToolResultContent(name = "get_weather", content = "今天的天气是晴天。")])
+        chat_message = LLMChatMessage(role = "tool", content = [LLMToolResultContent(id = "call_114514", name = "get_weather", content = [tools.TextContent(text="今天的天气是晴天。")])])
 
         entry = composer.compose(c2c_sender, [chat_message])
 
-        assert entry.content == ""
-        assert entry.metadata.get("_tool_results", None) is not None
+        assert len(entry.metadata.get("_tool_results", [])) > 0
 
 class TestDefaultMemoryDecomposer:
     def test_decompose_mixed_entries(self, decomposer, group_sender, c2c_sender):
@@ -130,20 +131,21 @@ class TestMultiElementDecomposer:
         entries = [
             MagicMock(
                 sender=c2c_sender,
-                content="",
+                content="<function_call id=\"call_114514\" name=\"get_weather\" />",
                 timestamp=datetime.now(),
-                metadata={"_tool_calls": [LLMToolCallContent(id ="call_114514",name="get_weather", parameters={"city": "北京"}).model_dump_json()]},
+                metadata={"_tool_calls": [LLMToolCallContent(id ="call_114514",name="get_weather", parameters={"city": "北京"}).model_dump()]},
             ),
             MagicMock(
                 sender=c2c_sender,
-                content="",
+                content="<tool_result id=\"call_114514\" name=\"get_weather\" isError=\"false\" />",
                 timestamp=datetime.now(),
-                metadata={"_tool_results": [LLMToolResultContent(id="call_114514", name="get_weather", content="今天的天气是晴天。").model_dump_json()]},
+                metadata={"_tool_results": [LLMToolResultContent(id="call_114514", name="get_weather", content=[tools.TextContent(text="今天的天气是晴天。")]).model_dump()]},
             )
         ]
 
         result = multi_decomposer.decompose(entries)
 
+        assert len(result) == 2
         tool_call_message = result[0]
         tool_result_message = result[1]
 

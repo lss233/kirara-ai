@@ -55,3 +55,6 @@ class MCPServerUpdateRequest(BaseModel):
     args: str = Field(default="")
     connection_type: Optional[str] = None
     url: Optional[str] = None
+    headers: Optional[Dict[str, str]] = None
+    env: Optional[Dict[str, str]] = None
+

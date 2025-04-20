@@ -1,6 +1,6 @@
 import asyncio
 import json
-from typing import Any, Dict, Optional, cast
+from typing import Any, Dict, List, cast
 
 import aiohttp
 import requests
@@ -12,19 +12,41 @@ from kirara_ai.llm.adapter import AutoDetectModelsProtocol, LLMBackendAdapter
 from kirara_ai.llm.format.message import (LLMChatContentPartType, LLMChatImageContent, LLMChatMessage,
                                           LLMChatTextContent, LLMToolCallContent, LLMToolResultContent)
 from kirara_ai.llm.format.request import LLMChatRequest, Tool
-from kirara_ai.llm.format.response import LLMChatResponse, Message, ToolCall, Usage
-from kirara_ai.llm.format.tool import Function, ToolCall
+from kirara_ai.llm.format.response import LLMChatResponse, Message, Usage
 from kirara_ai.logger import get_logger
 from kirara_ai.media import MediaManager
 from kirara_ai.tracing import trace_llm_chat
+
+from .utils import pick_tool_calls
 
 logger = get_logger("OpenAIAdapter")
 
 async def convert_parts_factory(messages: LLMChatMessage, media_manager: MediaManager) -> list[dict]:
     if messages.role == "tool":
         # typing.cast 指定类型，避免mypy报错
-        results = cast(list[LLMToolResultContent], messages.content)
-        return [{"role": "tool", "tool_call_id": result.id, "content": resolve_tool_results(result, media_manager)} for result in results]
+        elements = cast(list[LLMToolResultContent], messages.content)
+        outputs = []
+        for element in elements:
+            # 保证 content 为一个字符串
+            output = ""
+            for content in element.content:
+                if isinstance(content, tools.TextContent):
+                    output = content.text
+                elif isinstance(content, tools.MediaContent):
+                    media = media_manager.get_media(content.media_id)
+                    if media is None:
+                        raise ValueError(f"Media {content.media_id} not found")
+                    output += f"<media id={content.media_id} mime_type={content.mime_type} />"
+                else:
+                    raise ValueError(f"Unsupported content type: {type(content)}")
+            if element.isError:
+                output = f"Error: {element.name}\n{output}"
+            outputs.append({
+                "role": "tool",
+                "tool_call_id": element.id,
+                "content": output,
+            })
+        return outputs
     else:
         parts = []
         elements = cast(list[LLMChatContentPartType], messages.content)
@@ -76,35 +98,6 @@ def convert_tools_to_openai_format(tools: list[Tool]) -> list[dict]:
         }
     } for tool in tools]
 
-def resolve_tool_calls_from_response(tool_calls: Optional[list[dict]]):
-    if tool_calls is None:
-        return None
-    else:
-        return [ToolCall(
-            id=call["id"],
-            type=call["type"],
-            function=Function(
-                name=call["function"]["name"],
-                arguments=json.loads(call["function"].get("arguments", "{}"))
-            )
-        ) for call in tool_calls]
-    
-def resolve_tool_results(element: LLMToolResultContent, media_manager: MediaManager) -> str:
-    output = ""
-    for content in element.content:
-        if isinstance(content, tools.TextContent):
-            output = content.text
-        elif isinstance(content, tools.MediaContent):
-                    media = media_manager.get_media(content.media_id)
-                    if media is None:
-                        raise ValueError(f"Media {content.media_id} not found")
-                    output += f"<media id={content.media_id} mime_type={content.mime_type} />"
-        else:
-            raise ValueError(f"Unsupported content type: {type(content)}")
-    if element.isError:
-        output = f"an error occurred when calling the tool: {element.name}\n" + output
-    return output
-    
 class OpenAIConfig(BaseModel):
     api_key: str
     api_base: str = "https://api.openai.com/v1"
@@ -160,9 +153,9 @@ class OpenAIAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
             raise e
         logger.debug(f"Response: {response_data}")
 
-        choices = response_data.get("choices", [{}])
+        choices: List[dict[str, Any]] = response_data.get("choices", [{}])
         first_choice = choices[0] if choices else {}
-        message: dict = first_choice.get("message", {})
+        message: dict[str, Any] = first_choice.get("message", {})
         
         # 检测tool_calls字段是否存在和是否不为None. tool_call时content字段无有效信息，暂不记录
         content: list[LLMChatContentPartType] = []
@@ -187,7 +180,7 @@ class OpenAIAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
             message=Message(
                 content=content,
                 role=message.get("role", "assistant"),
-                tool_calls = resolve_tool_calls_from_response(message.get("tool_calls", None)),
+                tool_calls = pick_tool_calls(content),
                 finish_reason=first_choice.get("finish_reason", ""),
             ),
         )
