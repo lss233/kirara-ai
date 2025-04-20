@@ -5,7 +5,6 @@ from typing import Any, Dict, List, Literal, cast
 import aiohttp
 import requests
 from pydantic import BaseModel, ConfigDict
-from mcp.types import TextContent, ImageContent, EmbeddedResource
 
 import kirara_ai.llm.format.tool as tool
 from kirara_ai.llm.adapter import AutoDetectModelsProtocol, LLMBackendAdapter
@@ -83,7 +82,7 @@ async def convert_llm_chat_message_to_gemini_message(msg: LLMChatMessage, media_
         return await convert_non_tool_message(msg, media_manager)
     elif msg.role == "tool":
         results = cast(list[LLMToolResultContent], msg.content)
-        return {"role": "user", "parts": [resolve_tool_results(result, media_manager) for result in results]}
+        return {"role": "user", "parts": [resolve_tool_results(result) for result in results]}
     else:
         raise ValueError(f"Invalid role: {msg.role}")
 

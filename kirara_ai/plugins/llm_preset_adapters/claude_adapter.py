@@ -5,7 +5,6 @@ from typing import Any, Dict, List
 import aiohttp
 import requests
 from pydantic import BaseModel, ConfigDict
-from mcp.types import TextContent, ImageContent, EmbeddedResource, TextResourceContents, BlobResourceContents
 
 import kirara_ai.llm.format.tool as tools
 from kirara_ai.llm.adapter import AutoDetectModelsProtocol, LLMBackendAdapter
@@ -53,7 +52,7 @@ def convert_tools_to_claude_format(tools: list[Tool]) -> list[dict]:
     return [tool.model_dump(exclude={"strict": True, 'parameters': {'additionalProperties': True}}) for tool in tools]
 
 async def resolve_tool_result(element: LLMToolResultContent, media_manager: MediaManager) -> dict:
-    tool_result = []
+    tool_result: List[Dict[str, Any]] = []
     for item in element.content:
         if isinstance(item, tools.TextContent):
             tool_result.append({"type": "text", "text": item.text})
