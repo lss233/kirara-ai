@@ -3,8 +3,7 @@ from typing import Any, List, Optional
 from pydantic import BaseModel
 
 from kirara_ai.llm.format.message import LLMChatMessage
-from kirara_ai.llm.format.tool import Tool
-
+from .tool import Tool
 
 class ResponseFormat(BaseModel):
     type: Optional[str] = None

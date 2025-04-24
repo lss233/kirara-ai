@@ -7,7 +7,7 @@ import requests
 from pydantic import BaseModel, ConfigDict
 
 import kirara_ai.llm.format.tool as tools
-from kirara_ai.llm.adapter import AutoDetectModelsProtocol, LLMBackendAdapter
+from kirara_ai.llm.adapter import AutoDetectModelsProtocol, LLMBackendAdapter, LLMChatProtocol
 from kirara_ai.llm.format.message import (LLMChatContentPartType, LLMChatImageContent, LLMChatMessage,
                                           LLMChatTextContent, LLMToolCallContent, LLMToolResultContent)
 from kirara_ai.llm.format.request import LLMChatRequest, Tool
@@ -69,7 +69,7 @@ async def resolve_tool_result(element: LLMToolResultContent, media_manager: Medi
             })
     return {"type": "tool_result", "tool_use_id": element.id, "content": tool_result, "is_error": element.isError}
     
-class ClaudeAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
+class ClaudeAdapter(LLMBackendAdapter, AutoDetectModelsProtocol, LLMChatProtocol):
 
     media_manager: MediaManager
 
