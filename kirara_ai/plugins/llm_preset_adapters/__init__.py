@@ -1,19 +1,20 @@
-from llm_preset_adapters.alibabacloud_adapter import AlibabaCloudAdapter, AlibabaCloudConfig
-from llm_preset_adapters.claude_adapter import ClaudeAdapter, ClaudeConfig
-from llm_preset_adapters.deepseek_adapter import DeepSeekAdapter, DeepSeekConfig
-from llm_preset_adapters.gemini_adapter import GeminiAdapter, GeminiConfig
-from llm_preset_adapters.minimax_adapter import MinimaxAdapter, MinimaxConfig
-from llm_preset_adapters.moonshot_adapter import MoonshotAdapter, MoonshotConfig
-from llm_preset_adapters.ollama_adapter import OllamaAdapter, OllamaConfig
-from llm_preset_adapters.openai_adapter import OpenAIAdapter, OpenAIConfig
-from llm_preset_adapters.openrouter_adapter import OpenRouterAdapter, OpenRouterConfig
-from llm_preset_adapters.siliconflow_adapter import SiliconFlowAdapter, SiliconFlowConfig
-from llm_preset_adapters.tencentcloud_adapter import TencentCloudAdapter, TencentCloudConfig
-from llm_preset_adapters.volcengine_adapter import VolcengineAdapter, VolcengineConfig
+from .alibabacloud_adapter import AlibabaCloudAdapter, AlibabaCloudConfig
+from .claude_adapter import ClaudeAdapter, ClaudeConfig
+from .deepseek_adapter import DeepSeekAdapter, DeepSeekConfig
+from .gemini_adapter import GeminiAdapter, GeminiConfig
+from .minimax_adapter import MinimaxAdapter, MinimaxConfig
+from .moonshot_adapter import MoonshotAdapter, MoonshotConfig
+from .ollama_adapter import OllamaAdapter, OllamaConfig
+from .openai_adapter import OpenAIAdapter, OpenAIConfig
+from .openrouter_adapter import OpenRouterAdapter, OpenRouterConfig
+from .siliconflow_adapter import SiliconFlowAdapter, SiliconFlowConfig
+from .tencentcloud_adapter import TencentCloudAdapter, TencentCloudConfig
+from .volcengine_adapter import VolcengineAdapter, VolcengineConfig
+from .mistral_adapter import MistralAdapter, MistralConfig
+from .voyage_adapter import VoyageAdapter, VoyageConfig
 
 from kirara_ai.logger import get_logger
 from kirara_ai.plugin_manager.plugin import Plugin
-from kirara_ai.plugins.llm_preset_adapters.mistral_adapter import MistralAdapter, MistralConfig
 
 logger = get_logger("LLMPresetAdapters")
 

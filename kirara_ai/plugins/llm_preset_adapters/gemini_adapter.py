@@ -8,11 +8,12 @@ from pydantic import BaseModel, ConfigDict
 
 import kirara_ai.llm.format.tool as tool
 from kirara_ai.config.global_config import ModelConfig
-from kirara_ai.llm.adapter import AutoDetectModelsProtocol, LLMBackendAdapter
+from kirara_ai.llm.adapter import AutoDetectModelsProtocol, LLMBackendAdapter, LLMChatProtocol, LLMEmbeddingProtocol
 from kirara_ai.llm.format.message import (LLMChatContentPartType, LLMChatImageContent, LLMChatMessage,
                                           LLMChatTextContent, LLMToolCallContent, LLMToolResultContent, RoleType)
 from kirara_ai.llm.format.request import LLMChatRequest, Tool
 from kirara_ai.llm.format.response import LLMChatResponse, Message, Usage
+from kirara_ai.llm.format.embedding import LLMEmbeddingRequest, LLMEmbeddingResponse
 from kirara_ai.llm.model_types import LLMAbility, ModelType
 from kirara_ai.logger import get_logger
 from kirara_ai.media import MediaManager
@@ -88,6 +89,10 @@ async def convert_llm_chat_message_to_gemini_message(msg: LLMChatMessage, media_
     else:
         raise ValueError(f"Invalid role: {msg.role}")
 
+async def convert_all_messages_to_gemini_format(messages: List[LLMChatMessage], media_manager: MediaManager) -> list[dict]:
+    # gather需要先用异步函数封装，然后才能使用asyncio.run()
+    return await asyncio.gather(*[convert_llm_chat_message_to_gemini_message(msg, media_manager) for msg in messages])
+
 def convert_tools_to_gemini_format(tools: list[Tool]) -> list[dict[Literal["function_declarations"], list[dict]]]:
     # 定义允许的字段结构
     allowed_keys = {
@@ -155,7 +160,7 @@ def resolve_tool_results(element: LLMToolResultContent) -> dict:
         }
     }
 
-class GeminiAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
+class GeminiAdapter(LLMBackendAdapter, AutoDetectModelsProtocol, LLMChatProtocol, LLMEmbeddingProtocol):
 
     media_manager: MediaManager
 
@@ -165,22 +170,19 @@ class GeminiAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
 
     @trace_llm_chat
     def chat(self, req: LLMChatRequest) -> LLMChatResponse:
-        api_url = f"{self.config.api_base}/models/{req.model}:generateContent"
+        api_url = f"{self.config.api_base}/models/{req.model}:generateContent?key={self.config.api_key}"
         headers = {
-            "x-goog-api-key": self.config.api_key,
+            # 这里的 api key 验证方法和 api reference 不一致。本次处理暂时按照api reference写法更正。 Warning: 未进行实际测试
+            # "x-goog-api-key": self.config.api_key,
             "Content-Type": "application/json",
         }
-
-        # create a new asyncio loop to run the convert_llm_chat_message_to_gemini_message function
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
 
         response_modalities = ["text"]
         if req.model in IMAGE_MODAL_MODELS:
             response_modalities.append("image")
 
         data = {
-            "contents": loop.run_until_complete(asyncio.gather(*[convert_llm_chat_message_to_gemini_message(msg, self.media_manager) for msg in req.messages])),
+            "contents": asyncio.run(convert_all_messages_to_gemini_format(req.messages, self.media_manager)),
             "generationConfig": {
                 "temperature": req.temperature,
                 "topP": req.top_p,
@@ -212,7 +214,7 @@ class GeminiAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
                 content.append(LLMChatTextContent(text=part["text"]))
             elif "inlineData" in part:
                 decoded_image_data = base64.b64decode(part["inlineData"]["data"])
-                media = loop.run_until_complete(
+                media = asyncio.run(
                     self.media_manager.register_from_data(
                         data=decoded_image_data,
                         format=part["inlineData"]["mimeType"].removeprefix(
@@ -247,6 +249,45 @@ class GeminiAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
                 finish_reason=response_data["candidates"][0].get("finishReason"),
                 tool_calls=pick_tool_calls(content)
             ),
+        )
+    
+    def embed(self, req: LLMEmbeddingRequest) -> LLMEmbeddingResponse:
+        # 使用批量嵌入接口，单次嵌入接口:embedContent
+        # gemini 的 API reference 是这样定义的很奇怪，居然敢在 url 中传递key
+        api_url = f"{self.config.api_base}/models/{req.model}:batchEmbedContents?key={self.config.api_key}"
+        headers = {
+            "Content-Type": "application/json",
+        }
+        # 目前 gemini 没有一个嵌入模型支持多模态嵌入
+        if  any(isinstance(input, LLMChatImageContent) for input in req.inputs):
+            raise ValueError("gemini does not support multi-modal embedding")
+        inputs = cast(list[LLMChatTextContent], req.inputs)
+        data = [ 
+            {
+                "model": req.model,
+                "content": {
+                    "parts": [{"text": input.text}]
+                },
+                "outputDimensionality": req.dimension
+            } for input in inputs
+        ]
+        # 移除None字段
+        data = [{ k:v for k,v in item.items() if v is not None} for item in data]
+        response = self._post_with_retry(url=api_url,json={"requests": data}, headers=headers)
+        try:
+            # {
+            #     "embeddings": [
+            #         {"values": [0.1, ...]},
+            #         ...
+            #     ]
+            # }
+            response_data: dict[Literal["embeddings"],list[dict[Literal["values"], list[float]]]] = response.json()
+        except Exception as e:
+            self.logger.error(f"API Response: {response.text}")
+            raise e
+        return LLMEmbeddingResponse(
+            # gemini不返回usage
+            vectors=[data["values"] for data in response_data["embeddings"]]
         )
 
     async def auto_detect_models(self) -> list[ModelConfig]:

@@ -25,4 +25,6 @@ data/frpc/
 data/db
 .venv/
 uv.lock
-.mypy_cache/
+**/mypy_cache/
+**/test-workflow-new.yaml
+**/test_password.hash

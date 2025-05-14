@@ -40,7 +40,7 @@ RoleTypes = Literal["user", "assistant", "system", "tool"]
 
 class LLMChatMessage(BaseModel):
     """
-    当 role 为 "tool" 时，content 内部只能为 list[LLMToolResultContent]
+    当 role 为 "tool" 时, content 内部只能为 list[LLMToolResultContent]
     """
     content: list[LLMChatContentPartType]
     role: RoleTypes

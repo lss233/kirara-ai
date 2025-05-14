@@ -1,6 +1,6 @@
 import asyncio
 import json
-from typing import Any, Dict, List, cast
+from typing import Any, Dict, List, cast, Literal, TypedDict
 
 import aiohttp
 import requests
@@ -8,11 +8,12 @@ from pydantic import BaseModel, ConfigDict
 
 import kirara_ai.llm.format.tool as tools
 from kirara_ai.config.global_config import ModelConfig
-from kirara_ai.llm.adapter import AutoDetectModelsProtocol, LLMBackendAdapter
+from kirara_ai.llm.adapter import AutoDetectModelsProtocol, LLMBackendAdapter, LLMChatProtocol, LLMEmbeddingProtocol
 from kirara_ai.llm.format.message import (LLMChatContentPartType, LLMChatImageContent, LLMChatMessage,
                                           LLMChatTextContent, LLMToolCallContent, LLMToolResultContent)
 from kirara_ai.llm.format.request import LLMChatRequest, Tool
 from kirara_ai.llm.format.response import LLMChatResponse, Message, Usage
+from kirara_ai.llm.format.embedding import LLMEmbeddingRequest, LLMEmbeddingResponse
 from kirara_ai.logger import get_logger
 from kirara_ai.media import MediaManager
 from kirara_ai.tracing import trace_llm_chat
@@ -80,10 +81,9 @@ async def convert_parts_factory(messages: LLMChatMessage, media_manager: MediaMa
             response["tool_calls"] = tool_calls
         return [response]
 
-def convert_llm_chat_message_to_openai_message(messages: list[LLMChatMessage], media_manager: MediaManager, loop: asyncio.AbstractEventLoop) -> list[dict]:
-    results = loop.run_until_complete(
-        asyncio.gather(*[convert_parts_factory(msg, media_manager) for msg in messages])
-    )
+async def convert_llm_chat_message_to_openai_message(messages: list[LLMChatMessage], media_manager: MediaManager) -> list[dict]:
+    # gather 必须先包一层异步函数，转化为协程对象， 否侧报错
+    results = await asyncio.gather(*[convert_parts_factory(msg, media_manager) for msg in messages])
     # 扁平化结果, 展开所有列表
     return [item for sublist in results for item in sublist]
 
@@ -97,7 +97,6 @@ def convert_tools_to_openai_format(tools: list[Tool]) -> list[dict]:
             "strict": tool.strict,
         }
     } for tool in tools]
-    
 
 class OpenAIConfig(BaseModel):
     api_key: str
@@ -105,7 +104,7 @@ class OpenAIConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
 
-class OpenAIAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
+class OpenAIAdapterChatBase(LLMBackendAdapter, AutoDetectModelsProtocol, LLMChatProtocol):
     media_manager: MediaManager
     
     def __init__(self, config: OpenAIConfig):
@@ -118,14 +117,11 @@ class OpenAIAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
             "Content-Type": "application/json",
         }
         
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
         data = {
-            "messages": convert_llm_chat_message_to_openai_message(req.messages, self.media_manager, loop),
+            "messages": convert_llm_chat_message_to_openai_message(req.messages, self.media_manager),
             "model": req.model,
             "frequency_penalty": req.frequency_penalty,
-            "max_tokens": req.max_tokens,
+            "max_completion_tokens": req.max_tokens, # 最新的reference废除max_tokens，改为如上参数
             "presence_penalty": req.presence_penalty,
             "response_format": req.response_format,
             "stop": req.stop,
@@ -185,7 +181,6 @@ class OpenAIAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
                 finish_reason=first_choice.get("finish_reason", ""),
             ),
         )
-        
     async def get_models(self) -> list[str]:
         api_url = f"{self.config.api_base}/models"
         async with aiohttp.ClientSession(trust_env=True) as session:
@@ -206,3 +201,61 @@ class OpenAIAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
                 continue
             all_models.append(ModelConfig(id=model, type=guess_result[0].value, ability=guess_result[1]))
         return all_models
+    
+class EmbeddingData(TypedDict):
+    object: Literal["embedding"]
+    embedding: list[float]
+    index: int
+
+class EmbeddingResponse(TypedDict):
+    # 用于描述类型定义
+    object: Literal["list"]
+    data: list[EmbeddingData]
+    model: str
+    usage: dict[Literal["prompt_tokens", "total_tokens"], int]
+
+class OpenAIAdapter(OpenAIAdapterChatBase, LLMEmbeddingProtocol):
+    def embed(self, req: LLMEmbeddingRequest) -> LLMEmbeddingResponse:
+        """
+        此为openai api嵌入式模型接口
+
+        Tips: openai仅在 text-embedding-3 及以后模型中支持设定输出向量维度
+        """
+        
+        api_url = f"{self.config.api_base}/v1/embeddings"
+        headers = {
+            "Authorization": f"Bearer {self.config.api_key}",
+            "Content-Type": "application/json",
+        }
+        if len(req.inputs) > 2048:
+            # text数组不能超过2048个元素，openai api限制
+            raise ValueError("Text list has too many dimensions, max dimension is 2048")
+        if any(isinstance(input, LLMChatImageContent) for input in req.inputs):
+            # 未在api中发现多模态嵌入api, 等待后续更新
+            raise ValueError("openai does not support multi-modal embedding")
+        # mypy 类型检查修复，如果添加多模态请去除这个标注
+        inputs = cast(list[LLMChatTextContent], req.inputs)
+        data = {
+            "text": [input.text for input in inputs],
+            "model": req.model,
+            "dimensions": req.dimension,
+            "encoding_format": req.encoding_format
+        }
+        # 删除 None 字段
+        data = {k: v for k, v in data.items() if v is not None}
+        logger.debug(f"Request: {data}")
+        response = requests.post(api_url, headers=headers, json=data)
+        try:
+            response.raise_for_status()
+            response_data: EmbeddingResponse = response.json()
+        except Exception as e:
+            logger.error(f"Response: {response.text}")
+            raise e
+        logger.debug(f"Response: {response_data}")
+        return LLMEmbeddingResponse(
+            vectors=[data["embedding"] for data in response_data["data"]],
+            usage=Usage(
+                prompt_tokens=response_data["usage"].get("prompt_tokens", 0),
+                total_tokens=response_data["usage"].get("total_tokens", 0)
+            )
+        )

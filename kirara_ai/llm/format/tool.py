@@ -3,8 +3,6 @@ from typing import Any, Callable, Coroutine, Generic, List, Literal, Optional, T
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
-ModelTypes = Literal["openai", "gemini", "claude", "ollama"]
-
 class TextContent(BaseModel):
     type: Literal["text"] = "text"
     text: str
@@ -34,11 +32,12 @@ class LLMToolResultContent(BaseModel):
 class Function(BaseModel):
     # 工具名称
     name: str
-    # 这个字段类似于 python 的关键子参数，你可以直接使用`**arguments`
+    # 这个字段类似于 python 的关键字参数，你可以直接使用`**arguments`
     arguments: Optional[dict] = None
 
-    @classmethod
     @field_validator("arguments", mode="before")
+    @classmethod
+    # pydantic 官网建议将 @classmethod 放在下面。因为python装饰器执行顺序是由下到上。
     def convert_arguments(cls, v: Optional[Union[str, dict]]) -> Optional[dict]:
         return json.loads(v) if isinstance(v, str) else v
 

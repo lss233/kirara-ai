@@ -7,7 +7,7 @@ import requests
 from pydantic import BaseModel, ConfigDict
 
 import kirara_ai.llm.format.tool as tools
-from kirara_ai.llm.adapter import AutoDetectModelsProtocol, LLMBackendAdapter
+from kirara_ai.llm.adapter import AutoDetectModelsProtocol, LLMBackendAdapter, LLMChatProtocol
 from kirara_ai.llm.format.message import (LLMChatContentPartType, LLMChatImageContent, LLMChatMessage,
                                           LLMChatTextContent, LLMToolCallContent, LLMToolResultContent)
 from kirara_ai.llm.format.request import LLMChatRequest, Tool
@@ -69,7 +69,7 @@ async def resolve_tool_result(element: LLMToolResultContent, media_manager: Medi
             })
     return {"type": "tool_result", "tool_use_id": element.id, "content": tool_result, "is_error": element.isError}
     
-class ClaudeAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
+class ClaudeAdapter(LLMBackendAdapter, AutoDetectModelsProtocol, LLMChatProtocol):
 
     media_manager: MediaManager
 
@@ -93,13 +93,11 @@ class ClaudeAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
         else:
             system_message = None
 
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
         # 构建请求数据
 
         data = {
             "model": req.model,
-            "messages": loop.run_until_complete(convert_llm_chat_message_to_claude_message(req.messages, self.media_manager)),
+            "messages": asyncio.run(convert_llm_chat_message_to_claude_message(req.messages, self.media_manager)),
             "max_tokens": req.max_tokens,
             "system": system_message,
             "temperature": req.temperature,
@@ -129,7 +127,7 @@ class ClaudeAdapter(LLMBackendAdapter, AutoDetectModelsProtocol):
                 content.append(LLMChatTextContent(text=res["text"]))
             elif res["type"] == "image":
                 image_data = base64.b64decode(res["source"]["data"])
-                media = loop.run_until_complete(self.media_manager.register_from_data(
+                media = asyncio.run(self.media_manager.register_from_data(
                     image_data, res["source"]["media_type"], source="claude response"))
                 content.append(LLMChatImageContent(media_id=media))
             elif res["type"] == "tool_use":

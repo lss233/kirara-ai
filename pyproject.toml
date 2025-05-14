@@ -10,7 +10,8 @@ authors = [
 ]
 description = "A framework for building AI agents"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
+# mcp组件仅支持python3.10及以上版本
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",

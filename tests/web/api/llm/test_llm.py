@@ -8,7 +8,7 @@ from kirara_ai.config.config_loader import ConfigLoader
 from kirara_ai.config.global_config import GlobalConfig, LLMBackendConfig, WebConfig
 from kirara_ai.events.event_bus import EventBus
 from kirara_ai.ioc.container import DependencyContainer
-from kirara_ai.llm.adapter import LLMBackendAdapter
+from kirara_ai.llm.adapter import LLMBackendAdapter, LLMChatProtocol
 from kirara_ai.llm.format.message import LLMChatTextContent
 from kirara_ai.llm.format.request import LLMChatRequest
 from kirara_ai.llm.format.response import LLMChatResponse, Message, Usage
@@ -33,7 +33,7 @@ class TestConfig(BaseModel):
     model: str = "test-model"
 
 
-class TestAdapter(LLMBackendAdapter):
+class TestAdapter(LLMBackendAdapter, LLMChatProtocol):
     """测试用LLM适配器"""
 
     __test__ = False
@@ -56,7 +56,6 @@ class TestAdapter(LLMBackendAdapter):
                 total_tokens=30
             ),
         )
-
 
 # ==================== Fixtures ====================
 @pytest.fixture(scope="session")
