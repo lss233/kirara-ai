@@ -74,8 +74,21 @@ jobs:
       run: |
         # 下载 Web UI 压缩包到临时目录
         $release = Invoke-RestMethod -Uri "https://api.github.com/repos/DarkSkyTeam/chatgpt-for-bot-webui/releases" -Headers @{Authorization = "Bearer $env:GH_TOKEN"}
-        $web_ui_url = $release[0].assets[0].browser_download_url
+
+        # 判断当前是否为 pre-release 版本
+        $is_prerelease = ${{ contains(github.ref_name, 'a') || contains(github.ref_name, 'b') || contains(github.ref_name, 'rc') }}
+
+        # 选择合适的 Web UI release
+        if ($is_prerelease -eq "true") {
+          # 如果当前是 pre-release 版本，则选择第一个 release
+          $web_ui_url = $release[0].assets[0].browser_download_url
+        } else {
+          # 如果当前不是 pre-release 版本，则选择第一个非 pre-release 的 release
+          $web_ui_url = $release | Where-Object { $_.prerelease -eq $false } | Select-Object -First 1 | ForEach-Object { $_.assets[0].browser_download_url }
+        }
+
         $zip_file = "${{ env.BUILD_DIR }}/webui.zip"
+        echo "Downloading Web UI from $web_ui_url"
         Invoke-WebRequest -Uri $web_ui_url -OutFile $zip_file
 
         # 解压到临时目录
@@ -84,6 +97,9 @@ jobs:
         Expand-Archive -Path $zip_file -DestinationPath $temp_dir
 
         New-Item -ItemType Directory -Force -Path "${{ env.DIST_DIR }}/web"
+
+        # 打印 temp_dir 目录所有文件
+        Get-ChildItem -Path $temp_dir -Recurse
 
         # 移动 dist 文件夹到目标位置
         Copy-Item -Path "$temp_dir/dist/*" -Destination "${{ env.DIST_DIR }}/web" -Force -Recurse
@@ -115,3 +131,4 @@ jobs:
         tag: ${{ github.ref_name }}
         overwrite: false
         body: "Windows x64 用户的快速启动包"
+        prerelease: ${{ contains(github.ref_name, 'a') || contains(github.ref_name, 'b') || contains(github.ref_name, 'rc') }}
