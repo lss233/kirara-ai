@@ -8,8 +8,9 @@ from pydantic.json_schema import GenerateJsonSchema, JsonSchemaValue
 from ruamel.yaml import YAML
 
 from ..logger import get_logger
+from . import DATA_PATH
 
-CONFIG_FILE = "data/config.yaml"
+CONFIG_FILE = os.path.join(DATA_PATH, "config.yaml")
 
 T = TypeVar("T", bound=BaseModel)
 
