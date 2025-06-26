@@ -160,7 +160,7 @@ class ModelScopeAdapter(OpenAIAdapterChatBase):
             ),
             message=Message(
                 content=content_parts,
-                role=role or "assistant",
+                role=data["messages"][0].get("role", "assistant"),
                 tool_calls=pick_tool_calls(content_parts),
                 finish_reason=finish_reason or "",
             ),
