@@ -84,7 +84,7 @@ class ModelScopeAdapter(OpenAIAdapterChatBase):
             }],
             "model": model,
         }
-        response = requests.post(api_url, json=data, headers=headers, stream=True)
+        response = requests.post(api_url, json=data, headers=headers, stream=True, timeout=30)
         response.raise_for_status()
         
         # 处理流式响应
@@ -169,7 +169,7 @@ class ModelScopeAdapter(OpenAIAdapterChatBase):
 
     def _handle_non_streaming_request(self, api_url: str, headers: dict, data: dict, model: str) -> LLMChatResponse:
         """处理非流式请求"""
-        response = requests.post(api_url, json=data, headers=headers)
+        response = requests.post(api_url, json=data, headers=headers, timeout=15)
         
         try:
             response.raise_for_status()
