@@ -12,6 +12,7 @@ from .tencentcloud_adapter import TencentCloudAdapter, TencentCloudConfig
 from .volcengine_adapter import VolcengineAdapter, VolcengineConfig
 from .mistral_adapter import MistralAdapter, MistralConfig
 from .voyage_adapter import VoyageAdapter, VoyageConfig
+from .modelscope_adapter import ModelScopeAdapter, ModelScopeConfig
 
 from kirara_ai.logger import get_logger
 from kirara_ai.plugin_manager.plugin import Plugin
@@ -62,6 +63,9 @@ class LLMPresetAdaptersPlugin(Plugin):
         )
         self.llm_registry.register(
             "Mistral", MistralAdapter, MistralConfig
+        )
+        self.llm_registry.register(
+            "ModelScope", ModelScopeAdapter, ModelScopeConfig
         )
         logger.info("LLMPresetAdaptersPlugin loaded")
 
