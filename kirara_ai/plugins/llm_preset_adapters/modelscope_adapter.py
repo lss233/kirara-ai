@@ -133,9 +133,13 @@ class ModelScopeAdapter(OpenAIAdapterChatBase):
                     if "content" in delta and delta["content"]:
                         full_content += delta["content"]
                     
-                    # 记录角色信息
+                    # 记录角色信息并确保是有效值
                     if "role" in delta and delta["role"]:
-                        role = delta["role"]
+                        role_str = delta["role"]
+                        if role_str in {'user', 'assistant', 'system', 'tool'}:
+                            role_value = cast(Literal['user', 'assistant', 'system', 'tool'], role_str)
+                        else:
+                            logger.warning(f"Invalid role received: {role_str}, defaulting to 'assistant'")
                     
                     # 处理工具调用（简化版）
                     if "tool_calls" in delta and delta["tool_calls"]:
@@ -165,8 +169,8 @@ class ModelScopeAdapter(OpenAIAdapterChatBase):
             # 只返回最终内容
             content_parts = [LLMChatTextContent(text=full_content)]
 
-        # 安全获取角色值
-        role_value = role or "assistant"
+        # 构建响应时确保使用有效的角色
+        valid_role: Literal['user', 'assistant', 'system', 'tool'] = role_value or "assistant"
         
         return LLMChatResponse(
             model=model,
@@ -177,7 +181,7 @@ class ModelScopeAdapter(OpenAIAdapterChatBase):
             ),
             message=Message(
                 content=content_parts,
-                role=role_value,
+                role=valid_role,
                 tool_calls=pick_tool_calls(content_parts),
                 finish_reason=finish_reason or "",
             ),
