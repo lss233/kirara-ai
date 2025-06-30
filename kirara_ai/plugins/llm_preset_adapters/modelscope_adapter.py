@@ -17,7 +17,7 @@ from kirara_ai.logger import get_logger
 import asyncio
 import requests
 import json
-from typing import Any, Dict, List, cast, Optional
+from typing import Any, Dict, List, cast, Optional, Literal
 
 logger = get_logger("ModelScopeAdapter")
 
