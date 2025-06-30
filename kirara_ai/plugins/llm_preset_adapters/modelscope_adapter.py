@@ -42,9 +42,10 @@ class ModelScopeAdapter(OpenAIAdapterChatBase):
         }
         
         # 构建请求数据
+        model_name = req.model or ""
         data = {
             "messages": asyncio.run(convert_llm_chat_message_to_openai_message(req.messages, self.media_manager)),
-            "model": req.model,
+            "model": model_name,
             "frequency_penalty": req.frequency_penalty,
             "max_completion_tokens": req.max_tokens,
             "presence_penalty": req.presence_penalty,
@@ -76,11 +77,20 @@ class ModelScopeAdapter(OpenAIAdapterChatBase):
     
     def _handle_streaming_request(self, api_url: str, headers: dict, model: str, req:LLMChatRequest) -> LLMChatResponse:
         """处理流式请求，当模型为Qwen/QwQ-32B时"""
+        content_text = ""
+        if req.messages and req.messages[0].content:
+            first_content = req.messages[0].content[0]
+            if isinstance(first_content, LLMChatTextContent):
+                content_text = first_content.text
+            else:
+                # 处理非文本内容（如图像、工具调用等）
+                # 这里可以根据需要扩展其他类型处理逻辑
+                content_text = f"[Non-text content: {type(first_content).__name__}]"
         data = {
             "stream": True,
             "messages": [{
                 "role": "user",
-                "content": req.messages[0].content[0].text
+                "content": content_text
             }],
             "model": model,
         }
@@ -150,6 +160,9 @@ class ModelScopeAdapter(OpenAIAdapterChatBase):
         else:
             # 只返回最终内容
             content_parts = [LLMChatTextContent(text=full_content)]
+        
+        first_message = data["messages"][0] if data.get("messages") and len(data["messages"]) > 0 else {}
+        role_value = first_message.get("role", "assistant") if isinstance(first_message, dict) else "assistant"
         
         return LLMChatResponse(
             model=model,
