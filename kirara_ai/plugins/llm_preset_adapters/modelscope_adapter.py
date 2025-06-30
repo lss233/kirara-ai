@@ -71,9 +71,9 @@ class ModelScopeAdapter(OpenAIAdapterChatBase):
         logger.debug(f"Sending request to ModelScope API: {api_url}")
         logger.debug(f"Request data: {json.dumps(data, indent=2, ensure_ascii=False)}")
         if req.model not in  ["Qwen/QwQ-32B","deepseek-ai/DeepSeek-R1-0528"]:
-            return self._handle_non_streaming_request(api_url, headers, data, req.model)
+            return self._handle_non_streaming_request(api_url, headers, data, model_name)
         else:
-            return self._handle_streaming_request(api_url, headers, req.model, req)
+            return self._handle_streaming_request(api_url, headers, model_name, req)
     
     def _handle_streaming_request(self, api_url: str, headers: dict, model: str, req:LLMChatRequest) -> LLMChatResponse:
         """处理流式请求，当模型为Qwen/QwQ-32B时"""
@@ -84,14 +84,18 @@ class ModelScopeAdapter(OpenAIAdapterChatBase):
                 content_text = first_content.text
             else:
                 # 处理非文本内容（如图像、工具调用等）
-                # 这里可以根据需要扩展其他类型处理逻辑
                 content_text = f"[Non-text content: {type(first_content).__name__}]"
-        data = {
+        
+        # 显式声明 messages 为列表类型
+        messages: List[Dict[str, str]] = [{
+            "role": "user",
+            "content": content_text
+        }]
+        
+        # 显式声明 data 类型
+        data: Dict[str, Any] = {
             "stream": True,
-            "messages": [{
-                "role": "user",
-                "content": content_text
-            }],
+            "messages": messages,
             "model": model,
         }
         response = requests.post(api_url, json=data, headers=headers, stream=True, timeout=30)
@@ -160,9 +164,9 @@ class ModelScopeAdapter(OpenAIAdapterChatBase):
         else:
             # 只返回最终内容
             content_parts = [LLMChatTextContent(text=full_content)]
-        
-        first_message = data["messages"][0] if data.get("messages") and len(data["messages"]) > 0 else {}
-        role_value = first_message.get("role", "assistant") if isinstance(first_message, dict) else "assistant"
+
+        # 安全获取角色值
+        role_value = role or "assistant"
         
         return LLMChatResponse(
             model=model,
@@ -173,7 +177,7 @@ class ModelScopeAdapter(OpenAIAdapterChatBase):
             ),
             message=Message(
                 content=content_parts,
-                role=data["messages"][0].get("role", "assistant"),
+                role=role_value,
                 tool_calls=pick_tool_calls(content_parts),
                 finish_reason=finish_reason or "",
             ),
